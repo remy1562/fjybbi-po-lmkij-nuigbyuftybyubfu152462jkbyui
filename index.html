@@ -218,66 +218,19 @@ $('f').addEventListener('submit', async e => {
   if(last) last.scrollIntoView({behavior:'smooth', block:'start'});
 });
 
-/* ---------- Résumé : petit modèle d'IA dans le navigateur ---------- */
-const MODEL = 'onnx-community/Qwen2.5-0.5B-Instruct';
-let gen = null, genLoading = null, onProg = () => {};
-
+/* ---------- Résumé simple (sans IA, rien à télécharger) ---------- */
 function sumHTML(it){
-  return `<div class="sum"><b>${it.simple ? 'Résumé simple' : 'Résumé'}</b>${esc(it.summary)}</div>`;
+  return `<div class="sum"><b>Résumé</b>${esc(it.summary)}</div>`;
 }
 function firstSentences(t, n){
   const parts = t.replace(/\s+/g,' ').match(/[^.!?]+[.!?]+(\s|$)/g);
   return parts ? parts.slice(0,n).join('').trim() : t.slice(0,300);
 }
-async function loadModel(){
-  if(gen) return gen;
-  if(!genLoading){
-    genLoading = (async () => {
-      const { pipeline } = await import('https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.0.0');
-      return pipeline('text-generation', MODEL, {
-        dtype: 'q4',
-        device: navigator.gpu ? 'webgpu' : 'wasm',
-        progress_callback: p => onProg(p)
-      });
-    })();
-    genLoading.catch(() => { genLoading = null; });
-  }
-  gen = await genLoading;
-  return gen;
-}
-
-async function summarize(i, btn){
+function summarize(i, btn){
   const it = cur.items[i];
-  const box = $('sum-'+i);
-  if(!gen && !store.get('model_ok')){
-    if(!confirm("Pour résumer, l'appli télécharge un petit modèle d'IA (environ 400 Mo, une seule fois). Mieux vaut être en wifi. Continuer ?")) return;
-    store.set('model_ok','1');
-  }
-  btn.disabled = true;
-  box.innerHTML = '<div class="sum">Préparation du modèle…</div>';
-  onProg = p => {
-    if(p && p.status === 'progress' && typeof p.progress === 'number'){
-      box.innerHTML = `<div class="sum">Téléchargement du modèle… ${Math.round(p.progress)} %</div>`;
-    }
-  };
-  try{
-    const g = await loadModel();
-    box.innerHTML = '<div class="sum">Résumé en cours…</div>';
-    const messages = [
-      {role:'system', content:"Tu résumes un texte Wikipédia en français, en 2 phrases courtes. Utilise uniquement le texte fourni."},
-      {role:'user', content:`Question : ${it.q}\n\nTexte :\n${it.res.extract}`}
-    ];
-    const out = await g(messages, { max_new_tokens: 120, do_sample: false });
-    const t = (out[0].generated_text.at(-1).content || '').trim();
-    if(!t) throw new Error('vide');
-    it.summary = t; it.simple = false;
-  }catch(err){
-    it.summary = firstSentences(it.res.extract, 2);
-    it.simple = true;
-  }
+  it.summary = firstSentences(it.res.extract, 2);
   persist();
-  box.innerHTML = sumHTML(it);
-  btn.disabled = false;
+  $('sum-'+i).innerHTML = sumHTML(it);
 }
 
 /* ---------- Démarrage : nouvelle conversation à chaque ouverture ---------- */
