@@ -36,7 +36,6 @@ button:disabled{opacity:.6}
 .sum.err{border-color:var(--err)}.sum.err b{color:var(--err)}
 .msg{padding:14px;border-radius:12px;background:var(--card);border:1px solid var(--line)}
 .msg.err{border-color:var(--err);color:var(--err)}
-details.set{margin-top:28px;background:var(--card);border:1px solid var(--line);border-radius:14px;padding:12px 14px}
 summary{cursor:pointer;font-weight:600}
 details p{color:var(--muted);font-size:.9rem;margin:10px 0}
 .row{display:flex;gap:8px}
@@ -83,15 +82,6 @@ body.open #panel{transform:none;visibility:visible}
 </form>
 
 <div id="thread" aria-live="polite"></div>
-
-<details id="set" class="set">
-  <summary>Réglages Mistral</summary>
-  <p>Colle ta clé API Mistral pour activer le bouton « Résumer avec Mistral ». Elle reste enregistrée dans ce navigateur, sur ton téléphone.</p>
-  <div class="row">
-    <input id="key" type="password" placeholder="Clé API Mistral" autocomplete="off">
-    <button id="save" class="alt" type="button">Enregistrer</button>
-  </div>
-</details>
 
 <script>
 const $ = id => document.getElementById(id);
@@ -167,10 +157,10 @@ function cardHTML(it, idx){
       <p class="lang">${r.lang==='fr' ? 'Wikipédia en français' : 'Wikipédia en anglais (rien en français)'}</p>
       <p class="extract">${esc(r.extract)}</p>
       <div class="actions">
-        <button class="sumbtn" data-i="${idx}" type="button">Résumer avec Mistral</button>
+        <button class="sumbtn" data-i="${idx}" type="button">Résumer</button>
         <a class="btn alt" href="${esc(r.url)}" target="_blank" rel="noopener">Lire l'article</a>
       </div>
-      <div class="sumout" id="sum-${idx}" aria-live="polite">${it.summary ? `<div class="sum"><b>Résumé Mistral</b>${esc(it.summary)}</div>` : ''}</div>
+      <div class="sumout" id="sum-${idx}" aria-live="polite">${it.summary ? sumHTML(it) : ''}</div>
     </div>
   </article>`;
 }
@@ -228,49 +218,65 @@ $('f').addEventListener('submit', async e => {
   if(last) last.scrollIntoView({behavior:'smooth', block:'start'});
 });
 
-/* ---------- Mistral ---------- */
-$('key').value = store.get('mistral_key');
-$('save').onclick = () => {
-  store.set('mistral_key', $('key').value.trim());
-  $('save').textContent = 'Enregistré';
-  setTimeout(()=>$('save').textContent='Enregistrer',1500);
-};
+/* ---------- Résumé : petit modèle d'IA dans le navigateur ---------- */
+const MODEL = 'onnx-community/Qwen2.5-0.5B-Instruct';
+let gen = null, genLoading = null, onProg = () => {};
+
+function sumHTML(it){
+  return `<div class="sum"><b>${it.simple ? 'Résumé simple' : 'Résumé'}</b>${esc(it.summary)}</div>`;
+}
+function firstSentences(t, n){
+  const parts = t.replace(/\s+/g,' ').match(/[^.!?]+[.!?]+(\s|$)/g);
+  return parts ? parts.slice(0,n).join('').trim() : t.slice(0,300);
+}
+async function loadModel(){
+  if(gen) return gen;
+  if(!genLoading){
+    genLoading = (async () => {
+      const { pipeline } = await import('https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.0.0');
+      return pipeline('text-generation', MODEL, {
+        dtype: 'q4',
+        device: navigator.gpu ? 'webgpu' : 'wasm',
+        progress_callback: p => onProg(p)
+      });
+    })();
+    genLoading.catch(() => { genLoading = null; });
+  }
+  gen = await genLoading;
+  return gen;
+}
 
 async function summarize(i, btn){
   const it = cur.items[i];
-  const key = store.get('mistral_key');
   const box = $('sum-'+i);
-  if(!key){
-    $('set').open = true;
-    box.innerHTML = '<div class="sum err"><b>Clé manquante</b>Ajoute ta clé API Mistral dans les réglages en bas de page.</div>';
-    return;
+  if(!gen && !store.get('model_ok')){
+    if(!confirm("Pour résumer, l'appli télécharge un petit modèle d'IA (environ 400 Mo, une seule fois). Mieux vaut être en wifi. Continuer ?")) return;
+    store.set('model_ok','1');
   }
   btn.disabled = true;
-  box.innerHTML = '<div class="sum">Mistral résume…</div>';
+  box.innerHTML = '<div class="sum">Préparation du modèle…</div>';
+  onProg = p => {
+    if(p && p.status === 'progress' && typeof p.progress === 'number'){
+      box.innerHTML = `<div class="sum">Téléchargement du modèle… ${Math.round(p.progress)} %</div>`;
+    }
+  };
   try{
-    const r = await fetch('https://api.mistral.ai/v1/chat/completions', {
-      method:'POST',
-      headers:{'Content-Type':'application/json','Authorization':'Bearer '+key},
-      body: JSON.stringify({
-        model:'mistral-small-latest', temperature:0.2, max_tokens:250,
-        messages:[
-          {role:'system', content:"Tu réponds en français, en 2 à 3 phrases courtes, uniquement à partir du texte Wikipédia fourni. Si le texte ne répond pas à la question, dis-le."},
-          {role:'user', content:`Question : ${it.q}\n\nTexte Wikipédia (${it.res.title}) :\n${it.res.extract}`}
-        ]
-      })
-    });
-    if(r.status===401) throw new Error('Clé refusée par Mistral. Vérifie-la dans les réglages.');
-    if(r.status===429) throw new Error('Trop de demandes ou quota gratuit atteint. Réessaie dans un moment.');
-    if(!r.ok) throw new Error('Mistral a répondu avec une erreur ('+r.status+').');
-    const j = await r.json();
-    const t = j.choices && j.choices[0] && j.choices[0].message.content;
-    it.summary = t || 'Pas de réponse.';
-    persist();
-    box.innerHTML = `<div class="sum"><b>Résumé Mistral</b>${esc(it.summary)}</div>`;
+    const g = await loadModel();
+    box.innerHTML = '<div class="sum">Résumé en cours…</div>';
+    const messages = [
+      {role:'system', content:"Tu résumes un texte Wikipédia en français, en 2 phrases courtes. Utilise uniquement le texte fourni."},
+      {role:'user', content:`Question : ${it.q}\n\nTexte :\n${it.res.extract}`}
+    ];
+    const out = await g(messages, { max_new_tokens: 120, do_sample: false });
+    const t = (out[0].generated_text.at(-1).content || '').trim();
+    if(!t) throw new Error('vide');
+    it.summary = t; it.simple = false;
   }catch(err){
-    const m = err instanceof TypeError ? 'Impossible de joindre Mistral. Vérifie ta connexion.' : err.message;
-    box.innerHTML = `<div class="sum err"><b>Échec</b>${esc(m)}</div>`;
+    it.summary = firstSentences(it.res.extract, 2);
+    it.simple = true;
   }
+  persist();
+  box.innerHTML = sumHTML(it);
   btn.disabled = false;
 }
 
