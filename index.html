@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#f2f6f8">
+<meta name="mobile-web-app-capable" content="yes">
+<title>Cherche</title>
+<style>
+:root{--bg:#f2f6f8;--card:#ffffff;--ink:#13222c;--muted:#5d6f7a;--line:#d5e0e6;--accent:#0d5c6e;--accent-soft:#e1eef2;--err:#a63a2b}
+*{box-sizing:border-box}
+html,body{margin:0}
+body{background:var(--bg);color:var(--ink);font:16px/1.5 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;padding:env(safe-area-inset-top) 16px calc(24px + env(safe-area-inset-bottom));max-width:640px;margin:0 auto}
+h1{font:700 1.9rem/1.1 Georgia,"Iowan Old Style",serif;margin:28px 0 4px;letter-spacing:-.01em}
+.sub{color:var(--muted);margin:0 0 18px}
+form{display:flex;gap:8px}
+input[type=search],input[type=password],input[type=text]{flex:1;min-width:0;font:inherit;padding:14px 14px;border:1.5px solid var(--line);border-radius:12px;background:var(--card);color:var(--ink)}
+input:focus,button:focus-visible,a:focus-visible,summary:focus-visible{outline:3px solid var(--accent);outline-offset:2px}
+button,.btn{font:inherit;font-weight:600;border:0;border-radius:12px;padding:14px 18px;background:var(--accent);color:#fff;cursor:pointer;text-decoration:none;display:inline-block;text-align:center}
+button.alt,.btn.alt{background:var(--accent-soft);color:var(--accent)}
+button:disabled{opacity:.6}
+#out{margin-top:20px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:16px;overflow:hidden}
+.card img{display:block;width:100%;max-height:260px;object-fit:cover;background:var(--accent-soft)}
+.body{padding:16px}
+.card h2{font:700 1.5rem/1.2 Georgia,"Iowan Old Style",serif;margin:0 0 4px}
+.lang{color:var(--muted);font-size:.85rem;margin:0 0 10px}
+.extract{margin:0 0 14px;white-space:pre-line}
+.actions{display:flex;gap:8px;flex-wrap:wrap}
+.actions>*{flex:1 1 140px}
+.sum{margin-top:14px;padding:14px;border-left:4px solid var(--accent);background:var(--accent-soft);border-radius:0 12px 12px 0}
+.sum b{display:block;margin-bottom:4px;color:var(--accent)}
+.msg{padding:14px;border-radius:12px;background:var(--card);border:1px solid var(--line)}
+.msg.err{border-color:var(--err);color:var(--err)}
+details{margin-top:28px;background:var(--card);border:1px solid var(--line);border-radius:14px;padding:12px 14px}
+summary{cursor:pointer;font-weight:600}
+details p{color:var(--muted);font-size:.9rem;margin:10px 0}
+.row{display:flex;gap:8px}
+@media (prefers-reduced-motion:no-preference){.card{animation:in .25s ease-out}@keyframes in{from{opacity:0}to{opacity:1}}}
+</style>
+</head>
+<body>
+<h1>Cherche</h1>
+<p class="sub">Tape une question, l'appli cherche sur Wikipédia.</p>
+
+<form id="f">
+  <input id="q" type="search" placeholder="Par exemple : Nikola Tesla" autocomplete="off" enterkeyhint="search" required>
+  <button id="go" type="submit">Chercher</button>
+</form>
+
+<div id="out" aria-live="polite"></div>
+
+<details id="set">
+  <summary>Réglages Mistral</summary>
+  <p>Colle ta clé API Mistral pour activer le bouton « Résumer avec Mistral ». Elle reste enregistrée dans ce navigateur, sur ton téléphone.</p>
+  <div class="row">
+    <input id="key" type="password" placeholder="Clé API Mistral" autocomplete="off">
+    <button id="save" class="alt" type="button">Enregistrer</button>
+  </div>
+</details>
+
+<script>
+const $ = id => document.getElementById(id);
+const out = $('out');
+let current = null;
+
+const store = {
+  get(k){ try { return localStorage.getItem(k) || ''; } catch(e){ return ''; } },
+  set(k,v){ try { localStorage.setItem(k,v); } catch(e){} }
+};
+$('key').value = store.get('mistral_key');
+$('save').onclick = () => {
+  store.set('mistral_key', $('key').value.trim());
+  $('save').textContent = 'Enregistré';
+  setTimeout(()=>$('save').textContent='Enregistrer',1500);
+};
+
+const esc = s => String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+
+function clean(q){
+  const c = q.trim()
+    .replace(/[?!.]+$/,'')
+    .replace(/^(qui est|qui était|qui sont|qu['’]est[- ]ce que|qu['’]est[- ]ce qu['’]|c['’]est quoi|c['’]est qui|what is|who is)\s+/i,'')
+    .replace(/^(un |une |le |la |les |l['’]|d['’]|du |de la |des )/i,'')
+    .trim();
+  return c || q.trim();
+}
+
+async function wiki(lang, q){
+  const u = `https://${lang}.wikipedia.org/w/api.php?action=query&generator=search&gsrsearch=${encodeURIComponent(q)}&gsrlimit=1`
+    + `&prop=extracts|pageimages|info&exintro=1&explaintext=1&exsentences=5&piprop=thumbnail&pithumbsize=700&inprop=url&format=json&origin=*`;
+  const r = await fetch(u);
+  if(!r.ok) throw new Error('wiki');
+  const j = await r.json();
+  const p = j.query && Object.values(j.query.pages)[0];
+  if(!p || !p.extract) return null;
+  return { lang, title:p.title, extract:p.extract.trim(), img:p.thumbnail && p.thumbnail.source, url:p.fullurl };
+}
+
+$('f').addEventListener('submit', async e => {
+  e.preventDefault();
+  const raw = $('q').value;
+  const q = clean(raw);
+  $('go').disabled = true;
+  out.innerHTML = '<div class="msg">Recherche en cours…</div>';
+  try {
+    let res = await wiki('fr', q);
+    if(!res) res = await wiki('en', q);
+    if(!res){
+      out.innerHTML = '<div class="msg">Aucun résultat sur Wikipédia (français ni anglais). Essaie avec d\'autres mots.</div>';
+    } else {
+      current = { q: raw.trim(), ...res };
+      render(res);
+    }
+  } catch(err){
+    out.innerHTML = '<div class="msg err">Impossible de joindre Wikipédia. Vérifie ta connexion et réessaie.</div>';
+  }
+  $('go').disabled = false;
+});
+
+function render(r){
+  out.innerHTML = `<article class="card">
+    ${r.img ? `<img src="${esc(r.img)}" alt="${esc(r.title)}">` : ''}
+    <div class="body">
+      <h2>${esc(r.title)}</h2>
+      <p class="lang">${r.lang==='fr' ? 'Wikipédia en français' : 'Wikipédia en anglais (rien en français)'}</p>
+      <p class="extract">${esc(r.extract)}</p>
+      <div class="actions">
+        <button id="sum" type="button">Résumer avec Mistral</button>
+        <a class="btn alt" href="${esc(r.url)}" target="_blank" rel="noopener">Lire l'article</a>
+      </div>
+      <div id="sumout" aria-live="polite"></div>
+    </div>
+  </article>`;
+  $('sum').onclick = summarize;
+}
+
+async function summarize(){
+  const key = store.get('mistral_key');
+  const box = $('sumout');
+  if(!key){
+    $('set').open = true;
+    box.innerHTML = '<div class="sum"><b>Clé manquante</b>Ajoute ta clé API Mistral dans les réglages en bas de page.</div>';
+    return;
+  }
+  const btn = $('sum');
+  btn.disabled = true;
+  box.innerHTML = '<div class="sum">Mistral résume…</div>';
+  try{
+    const r = await fetch('https://api.mistral.ai/v1/chat/completions', {
+      method:'POST',
+      headers:{'Content-Type':'application/json','Authorization':'Bearer '+key},
+      body: JSON.stringify({
+        model:'mistral-small-latest',
+        temperature:0.2,
+        max_tokens:250,
+        messages:[
+          {role:'system', content:"Tu réponds en français, en 2 à 3 phrases courtes, uniquement à partir du texte Wikipédia fourni. Si le texte ne répond pas à la question, dis-le."},
+          {role:'user', content:`Question : ${current.q}\n\nTexte Wikipédia (${current.title}) :\n${current.extract}`}
+        ]
+      })
+    });
+    if(r.status===401) throw new Error('Clé refusée par Mistral. Vérifie-la dans les réglages.');
+    if(r.status===429) throw new Error('Trop de demandes ou quota gratuit atteint. Réessaie dans un moment.');
+    if(!r.ok) throw new Error('Mistral a répondu avec une erreur ('+r.status+').');
+    const j = await r.json();
+    const t = j.choices && j.choices[0] && j.choices[0].message.content;
+    box.innerHTML = `<div class="sum"><b>Résumé Mistral</b>${esc(t || 'Pas de réponse.')}</div>`;
+  }catch(err){
+    const m = err instanceof TypeError ? 'Impossible de joindre Mistral. Vérifie ta connexion.' : err.message;
+    box.innerHTML = `<div class="sum" style="border-color:var(--err)"><b style="color:var(--err)">Échec</b>${esc(m)}</div>`;
+  }
+  btn.disabled = false;
+}
+</script>
+</body>
+</html>
