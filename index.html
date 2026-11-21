@@ -11,36 +11,70 @@
 *{box-sizing:border-box}
 html,body{margin:0}
 body{background:var(--bg);color:var(--ink);font:16px/1.5 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;padding:env(safe-area-inset-top) 16px calc(24px + env(safe-area-inset-bottom));max-width:640px;margin:0 auto}
-h1{font:700 1.9rem/1.1 Georgia,"Iowan Old Style",serif;margin:28px 0 4px;letter-spacing:-.01em}
-.sub{color:var(--muted);margin:0 0 18px}
+header{display:flex;align-items:center;justify-content:space-between;gap:8px;margin:20px 0 6px}
+h1{font:700 1.9rem/1.1 Georgia,"Iowan Old Style",serif;margin:0;letter-spacing:-.01em}
+.sub{color:var(--muted);margin:0 0 16px}
 form{display:flex;gap:8px}
-input[type=search],input[type=password],input[type=text]{flex:1;min-width:0;font:inherit;padding:14px 14px;border:1.5px solid var(--line);border-radius:12px;background:var(--card);color:var(--ink)}
+input[type=search],input[type=password],input[type=text]{flex:1;min-width:0;font:inherit;padding:14px;border:1.5px solid var(--line);border-radius:12px;background:var(--card);color:var(--ink)}
 input:focus,button:focus-visible,a:focus-visible,summary:focus-visible{outline:3px solid var(--accent);outline-offset:2px}
 button,.btn{font:inherit;font-weight:600;border:0;border-radius:12px;padding:14px 18px;background:var(--accent);color:#fff;cursor:pointer;text-decoration:none;display:inline-block;text-align:center}
 button.alt,.btn.alt{background:var(--accent-soft);color:var(--accent)}
+button.small{padding:9px 12px;font-size:.9rem}
 button:disabled{opacity:.6}
-#out{margin-top:20px}
+#thread{margin-top:18px;display:flex;flex-direction:column;gap:16px}
+.q{align-self:flex-end;max-width:85%;background:var(--accent);color:#fff;padding:10px 14px;border-radius:16px 16px 4px 16px}
 .card{background:var(--card);border:1px solid var(--line);border-radius:16px;overflow:hidden}
-.card img{display:block;width:100%;max-height:260px;object-fit:cover;background:var(--accent-soft)}
+.card img{display:block;width:100%;max-height:240px;object-fit:cover;background:var(--accent-soft)}
 .body{padding:16px}
-.card h2{font:700 1.5rem/1.2 Georgia,"Iowan Old Style",serif;margin:0 0 4px}
+.card h2{font:700 1.4rem/1.2 Georgia,"Iowan Old Style",serif;margin:0 0 4px}
 .lang{color:var(--muted);font-size:.85rem;margin:0 0 10px}
 .extract{margin:0 0 14px;white-space:pre-line}
 .actions{display:flex;gap:8px;flex-wrap:wrap}
 .actions>*{flex:1 1 140px}
 .sum{margin-top:14px;padding:14px;border-left:4px solid var(--accent);background:var(--accent-soft);border-radius:0 12px 12px 0}
 .sum b{display:block;margin-bottom:4px;color:var(--accent)}
+.sum.err{border-color:var(--err)}.sum.err b{color:var(--err)}
 .msg{padding:14px;border-radius:12px;background:var(--card);border:1px solid var(--line)}
 .msg.err{border-color:var(--err);color:var(--err)}
-details{margin-top:28px;background:var(--card);border:1px solid var(--line);border-radius:14px;padding:12px 14px}
+details.set{margin-top:28px;background:var(--card);border:1px solid var(--line);border-radius:14px;padding:12px 14px}
 summary{cursor:pointer;font-weight:600}
 details p{color:var(--muted);font-size:.9rem;margin:10px 0}
 .row{display:flex;gap:8px}
-@media (prefers-reduced-motion:no-preference){.card{animation:in .25s ease-out}@keyframes in{from{opacity:0}to{opacity:1}}}
+/* panneau historique */
+#scrim{position:fixed;inset:0;background:rgba(19,34,44,.45);display:none;z-index:10}
+#panel{position:fixed;top:0;bottom:0;left:0;width:min(86vw,340px);background:var(--card);z-index:11;transform:translateX(-100%);visibility:hidden;display:flex;flex-direction:column;padding:env(safe-area-inset-top) 0 env(safe-area-inset-bottom);box-shadow:2px 0 16px rgba(0,0,0,.15)}
+body.open #scrim{display:block}
+body.open #panel{transform:none;visibility:visible}
+#panel .top{display:flex;gap:8px;padding:14px;border-bottom:1px solid var(--line)}
+#panel .top button{flex:1}
+#list{list-style:none;margin:0;padding:6px 0;overflow:auto;flex:1}
+#list li{display:flex;align-items:center;border-bottom:1px solid var(--line)}
+#list li.cur{background:var(--accent-soft)}
+#list .pick{flex:1;min-width:0;text-align:left;background:none;color:var(--ink);padding:14px;border-radius:0;font-weight:500}
+#list .pick span{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#list .pick small{color:var(--muted);font-weight:400}
+#list .del{background:none;color:var(--err);padding:14px;border-radius:0}
+.empty{color:var(--muted);padding:14px}
+@media (prefers-reduced-motion:no-preference){
+  #panel{transition:transform .2s ease,visibility .2s}
+  .card{animation:in .25s ease-out}@keyframes in{from{opacity:0}to{opacity:1}}
+}
 </style>
 </head>
 <body>
-<h1>Cherche</h1>
+<div id="scrim"></div>
+<aside id="panel" aria-label="Conversations">
+  <div class="top">
+    <button id="newc" type="button">Nouvelle conversation</button>
+    <button id="closep" class="alt" type="button">Fermer</button>
+  </div>
+  <ul id="list"></ul>
+</aside>
+
+<header>
+  <h1>Cherche</h1>
+  <button id="openp" class="alt small" type="button">Conversations</button>
+</header>
 <p class="sub">Tape une question, l'appli cherche sur Wikipédia.</p>
 
 <form id="f">
@@ -48,9 +82,9 @@ details p{color:var(--muted);font-size:.9rem;margin:10px 0}
   <button id="go" type="submit">Chercher</button>
 </form>
 
-<div id="out" aria-live="polite"></div>
+<div id="thread" aria-live="polite"></div>
 
-<details id="set">
+<details id="set" class="set">
   <summary>Réglages Mistral</summary>
   <p>Colle ta clé API Mistral pour activer le bouton « Résumer avec Mistral ». Elle reste enregistrée dans ce navigateur, sur ton téléphone.</p>
   <div class="row">
@@ -61,22 +95,96 @@ details p{color:var(--muted);font-size:.9rem;margin:10px 0}
 
 <script>
 const $ = id => document.getElementById(id);
-const out = $('out');
-let current = null;
+const esc = s => String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 
 const store = {
   get(k){ try { return localStorage.getItem(k) || ''; } catch(e){ return ''; } },
   set(k,v){ try { localStorage.setItem(k,v); } catch(e){} }
 };
-$('key').value = store.get('mistral_key');
-$('save').onclick = () => {
-  store.set('mistral_key', $('key').value.trim());
-  $('save').textContent = 'Enregistré';
-  setTimeout(()=>$('save').textContent='Enregistrer',1500);
-};
 
-const esc = s => String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+/* ---------- Conversations ---------- */
+let convs = [];
+try { convs = JSON.parse(store.get('convs') || '[]'); } catch(e){ convs = []; }
+let cur = null;
 
+const persist = () => store.set('convs', JSON.stringify(convs));
+const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2,6);
+
+function newConv(){
+  cur = { id: uid(), title: 'Nouvelle conversation', date: Date.now(), items: [] };
+  convs.unshift(cur);
+  persist(); renderThread(); renderList();
+}
+function openConv(id){
+  const c = convs.find(x => x.id === id);
+  if(!c) return;
+  cur = c; renderThread(); renderList(); closePanel();
+}
+function delConv(id){
+  const c = convs.find(x => x.id === id);
+  if(!c || !confirm('Supprimer cette conversation ?')) return;
+  convs = convs.filter(x => x.id !== id);
+  persist();
+  if(cur && cur.id === id){
+    cur = convs[0] || null;
+    if(!cur) { newConv(); return; }
+  }
+  renderThread(); renderList();
+}
+
+function renderList(){
+  const ul = $('list');
+  if(!convs.length){ ul.innerHTML = '<li class="empty">Aucune conversation.</li>'; return; }
+  ul.innerHTML = convs.map(c => {
+    const d = new Date(c.date).toLocaleDateString('fr-FR',{day:'numeric',month:'short'});
+    return `<li class="${cur && cur.id===c.id ? 'cur':''}">
+      <button class="pick" data-id="${c.id}" type="button"><span>${esc(c.title)}</span><small>${d} · ${c.items.length} recherche${c.items.length>1?'s':''}</small></button>
+      <button class="del" data-del="${c.id}" type="button" aria-label="Supprimer la conversation ${esc(c.title)}">Supprimer</button>
+    </li>`;
+  }).join('');
+}
+$('list').addEventListener('click', e => {
+  const p = e.target.closest('[data-id]'), d = e.target.closest('[data-del]');
+  if(d) delConv(d.dataset.del); else if(p) openConv(p.dataset.id);
+});
+
+function openPanel(){ document.body.classList.add('open'); }
+function closePanel(){ document.body.classList.remove('open'); }
+$('openp').onclick = openPanel;
+$('closep').onclick = closePanel;
+$('scrim').onclick = closePanel;
+$('newc').onclick = () => { newConv(); closePanel(); $('q').focus(); };
+
+/* ---------- Affichage ---------- */
+function cardHTML(it, idx){
+  if(it.error) return `<div class="msg err">${esc(it.error)}</div>`;
+  if(it.notfound) return '<div class="msg">Aucun résultat sur Wikipédia (français ni anglais). Essaie avec d\'autres mots.</div>';
+  const r = it.res;
+  return `<article class="card">
+    ${r.img ? `<img src="${esc(r.img)}" alt="${esc(r.title)}">` : ''}
+    <div class="body">
+      <h2>${esc(r.title)}</h2>
+      <p class="lang">${r.lang==='fr' ? 'Wikipédia en français' : 'Wikipédia en anglais (rien en français)'}</p>
+      <p class="extract">${esc(r.extract)}</p>
+      <div class="actions">
+        <button class="sumbtn" data-i="${idx}" type="button">Résumer avec Mistral</button>
+        <a class="btn alt" href="${esc(r.url)}" target="_blank" rel="noopener">Lire l'article</a>
+      </div>
+      <div class="sumout" id="sum-${idx}" aria-live="polite">${it.summary ? `<div class="sum"><b>Résumé Mistral</b>${esc(it.summary)}</div>` : ''}</div>
+    </div>
+  </article>`;
+}
+function renderThread(){
+  const t = $('thread');
+  if(!cur){ t.innerHTML=''; return; }
+  t.innerHTML = cur.items.map((it,i) => `<div class="q">${esc(it.q)}</div>${cardHTML(it,i)}`).join('');
+}
+$('thread').addEventListener('click', e => {
+  const b = e.target.closest('.sumbtn');
+  if(b) summarize(+b.dataset.i, b);
+});
+
+/* ---------- Wikipédia ---------- */
 function clean(q){
   const c = q.trim()
     .replace(/[?!.]+$/,'')
@@ -85,7 +193,6 @@ function clean(q){
     .trim();
   return c || q.trim();
 }
-
 async function wiki(lang, q){
   const u = `https://${lang}.wikipedia.org/w/api.php?action=query&generator=search&gsrsearch=${encodeURIComponent(q)}&gsrlimit=1`
     + `&prop=extracts|pageimages|info&exintro=1&explaintext=1&exsentences=5&piprop=thumbnail&pithumbsize=700&inprop=url&format=json&origin=*`;
@@ -94,56 +201,50 @@ async function wiki(lang, q){
   const j = await r.json();
   const p = j.query && Object.values(j.query.pages)[0];
   if(!p || !p.extract) return null;
-  return { lang, title:p.title, extract:p.extract.trim(), img:p.thumbnail && p.thumbnail.source, url:p.fullurl };
+  return { lang, title:p.title, extract:p.extract.trim(), img:(p.thumbnail && p.thumbnail.source) || '', url:p.fullurl };
 }
 
 $('f').addEventListener('submit', async e => {
   e.preventDefault();
-  const raw = $('q').value;
-  const q = clean(raw);
+  const raw = $('q').value.trim();
+  if(!raw) return;
+  if(!cur) newConv();
   $('go').disabled = true;
-  out.innerHTML = '<div class="msg">Recherche en cours…</div>';
+  let item = { q: raw };
   try {
-    let res = await wiki('fr', q);
-    if(!res) res = await wiki('en', q);
-    if(!res){
-      out.innerHTML = '<div class="msg">Aucun résultat sur Wikipédia (français ni anglais). Essaie avec d\'autres mots.</div>';
-    } else {
-      current = { q: raw.trim(), ...res };
-      render(res);
-    }
+    let res = await wiki('fr', clean(raw));
+    if(!res) res = await wiki('en', clean(raw));
+    if(res) item.res = res; else item.notfound = true;
   } catch(err){
-    out.innerHTML = '<div class="msg err">Impossible de joindre Wikipédia. Vérifie ta connexion et réessaie.</div>';
+    item.error = 'Impossible de joindre Wikipédia. Vérifie ta connexion et réessaie.';
   }
+  if(!cur.items.length) cur.title = raw.length > 40 ? raw.slice(0,40) + '…' : raw;
+  cur.items.push(item);
+  persist(); renderThread(); renderList();
+  $('q').value = '';
   $('go').disabled = false;
+  const cards = document.querySelectorAll('#thread .card, #thread .msg');
+  const last = cards[cards.length-1];
+  if(last) last.scrollIntoView({behavior:'smooth', block:'start'});
 });
 
-function render(r){
-  out.innerHTML = `<article class="card">
-    ${r.img ? `<img src="${esc(r.img)}" alt="${esc(r.title)}">` : ''}
-    <div class="body">
-      <h2>${esc(r.title)}</h2>
-      <p class="lang">${r.lang==='fr' ? 'Wikipédia en français' : 'Wikipédia en anglais (rien en français)'}</p>
-      <p class="extract">${esc(r.extract)}</p>
-      <div class="actions">
-        <button id="sum" type="button">Résumer avec Mistral</button>
-        <a class="btn alt" href="${esc(r.url)}" target="_blank" rel="noopener">Lire l'article</a>
-      </div>
-      <div id="sumout" aria-live="polite"></div>
-    </div>
-  </article>`;
-  $('sum').onclick = summarize;
-}
+/* ---------- Mistral ---------- */
+$('key').value = store.get('mistral_key');
+$('save').onclick = () => {
+  store.set('mistral_key', $('key').value.trim());
+  $('save').textContent = 'Enregistré';
+  setTimeout(()=>$('save').textContent='Enregistrer',1500);
+};
 
-async function summarize(){
+async function summarize(i, btn){
+  const it = cur.items[i];
   const key = store.get('mistral_key');
-  const box = $('sumout');
+  const box = $('sum-'+i);
   if(!key){
     $('set').open = true;
-    box.innerHTML = '<div class="sum"><b>Clé manquante</b>Ajoute ta clé API Mistral dans les réglages en bas de page.</div>';
+    box.innerHTML = '<div class="sum err"><b>Clé manquante</b>Ajoute ta clé API Mistral dans les réglages en bas de page.</div>';
     return;
   }
-  const btn = $('sum');
   btn.disabled = true;
   box.innerHTML = '<div class="sum">Mistral résume…</div>';
   try{
@@ -151,12 +252,10 @@ async function summarize(){
       method:'POST',
       headers:{'Content-Type':'application/json','Authorization':'Bearer '+key},
       body: JSON.stringify({
-        model:'mistral-small-latest',
-        temperature:0.2,
-        max_tokens:250,
+        model:'mistral-small-latest', temperature:0.2, max_tokens:250,
         messages:[
           {role:'system', content:"Tu réponds en français, en 2 à 3 phrases courtes, uniquement à partir du texte Wikipédia fourni. Si le texte ne répond pas à la question, dis-le."},
-          {role:'user', content:`Question : ${current.q}\n\nTexte Wikipédia (${current.title}) :\n${current.extract}`}
+          {role:'user', content:`Question : ${it.q}\n\nTexte Wikipédia (${it.res.title}) :\n${it.res.extract}`}
         ]
       })
     });
@@ -165,13 +264,18 @@ async function summarize(){
     if(!r.ok) throw new Error('Mistral a répondu avec une erreur ('+r.status+').');
     const j = await r.json();
     const t = j.choices && j.choices[0] && j.choices[0].message.content;
-    box.innerHTML = `<div class="sum"><b>Résumé Mistral</b>${esc(t || 'Pas de réponse.')}</div>`;
+    it.summary = t || 'Pas de réponse.';
+    persist();
+    box.innerHTML = `<div class="sum"><b>Résumé Mistral</b>${esc(it.summary)}</div>`;
   }catch(err){
     const m = err instanceof TypeError ? 'Impossible de joindre Mistral. Vérifie ta connexion.' : err.message;
-    box.innerHTML = `<div class="sum" style="border-color:var(--err)"><b style="color:var(--err)">Échec</b>${esc(m)}</div>`;
+    box.innerHTML = `<div class="sum err"><b>Échec</b>${esc(m)}</div>`;
   }
   btn.disabled = false;
 }
+
+/* ---------- Démarrage : nouvelle conversation à chaque ouverture ---------- */
+newConv();
 </script>
 </body>
 </html>
