@@ -61,6 +61,21 @@ body.open #panel{transform:none;visibility:visible}
 #list .pick small{color:var(--muted);font-weight:400}
 #list .del{background:none;color:var(--err);padding:14px;border-radius:0}
 .empty{color:var(--muted);padding:14px}
+.hb{display:flex;gap:6px}
+.tools{display:flex;gap:8px;margin-top:10px;align-items:center}
+select{font:inherit;flex:1;min-width:0;padding:10px;border:1.5px solid var(--line);border-radius:12px;background:var(--card);color:var(--ink)}
+.more{white-space:pre-line;margin:0 0 14px;padding-top:12px;border-top:1px solid var(--line)}
+.more:empty{display:none}
+.tabs{display:flex;gap:6px;padding:10px 14px 0}
+.tabs .tab{flex:1;padding:10px}
+.tabs .tab.on{background:var(--accent);color:var(--bg)}
+.srch{padding:10px 14px 0}.srch input{width:100%}
+.foot{display:flex;gap:8px;padding:12px 14px;border-top:1px solid var(--line)}.foot button{flex:1}
+#list .ren{background:none;color:var(--accent);padding:14px 8px;border-radius:0;font-size:.8rem}
+#list .del{padding:14px 8px;font-size:.8rem}
+:root{color-scheme:light}
+:root[data-theme="dark"]{color-scheme:dark;--bg:#0f1a20;--card:#17262e;--ink:#e6eef2;--muted:#93a6b0;--line:#2a3d47;--accent:#5cc0d4;--accent-soft:#1d3640;--err:#ff8a78}
+:root[data-theme="dark"] button:not(.alt),:root[data-theme="dark"] .btn:not(.alt),:root[data-theme="dark"] .q{color:#06222b}
 @media (prefers-reduced-motion:no-preference){
   #panel{transition:transform .2s ease,visibility .2s}
   .card{animation:in .25s ease-out}@keyframes in{from{opacity:0}to{opacity:1}}
@@ -74,12 +89,15 @@ body.open #panel{transform:none;visibility:visible}
     <button id="newc" type="button">Nouvelle conversation</button>
     <button id="closep" class="alt" type="button">Fermer</button>
   </div>
+  <div class="tabs"><button class="alt tab on" data-tab="c" type="button">Conversations</button><button class="alt tab" data-tab="f" type="button">Favoris</button></div>
+  <div class="srch"><input id="lq" type="search" placeholder="Chercher dans mes conversations"></div>
   <ul id="list"></ul>
+  <div class="foot"><button id="exp" class="alt small" type="button">Sauvegarder</button><button id="impb" class="alt small" type="button">Restaurer</button><input id="imp" type="file" accept="application/json,.json" hidden></div>
 </aside>
 
 <header>
   <h1>Cherche</h1>
-  <button id="openp" class="alt small" type="button">Conversations</button>
+  <div class="hb"><button id="theme" class="alt small" type="button">Sombre</button><button id="openp" class="alt small" type="button">Conversations</button></div>
 </header>
 <p class="sub">Tape une question, l'appli cherche sur Wikipédia.</p>
 
@@ -88,6 +106,10 @@ body.open #panel{transform:none;visibility:visible}
   <button id="mic" class="alt" type="button" aria-label="Dicter la question" hidden><svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 14a3 3 0 0 0 3-3V5a3 3 0 0 0-6 0v6a3 3 0 0 0 3 3zm5-3a5 5 0 0 1-10 0H5a7 7 0 0 0 6 6.9V21h2v-3.1A7 7 0 0 0 19 11z"/></svg></button>
   <button id="go" type="submit">Chercher</button>
 </form>
+<div class="tools">
+  <select id="src" aria-label="Source de la recherche"><option value="wikipedia">Wikipédia</option><option value="wiktionary">Wiktionnaire (définitions)</option></select>
+  <button id="rand" class="alt small" type="button">Article au hasard</button>
+</div>
 
 <div id="thread" aria-live="polite"></div>
 
@@ -130,20 +152,39 @@ function delConv(id){
   renderThread(); renderList();
 }
 
+let tab = 'c';
+function langLabel(r){
+  const d = r.src === 'wiktionary', fr = r.lang === 'fr';
+  return d ? (fr ? 'Wiktionnaire en français' : 'Wiktionnaire en anglais (rien en français)') : (fr ? 'Wikipédia en français' : 'Wikipédia en anglais (rien en français)');
+}
 function renderList(){
   const ul = $('list');
-  if(!convs.length){ ul.innerHTML = '<li class="empty">Aucune conversation.</li>'; return; }
-  ul.innerHTML = convs.map(c => {
+  document.querySelectorAll('.tab').forEach(b => b.classList.toggle('on', b.dataset.tab === tab));
+  $('lq').hidden = tab !== 'c';
+  if(tab === 'f'){
+    ul.innerHTML = favs.length ? favs.map((f,i) => `<li><button class="pick" data-fav="${i}" type="button"><span>${esc(f.title)}</span><small>${esc(langLabel(f))}</small></button><button class="del" data-favdel="${i}" type="button">Retirer</button></li>`).join('') : `<li class="empty">Aucun favori pour l'instant.</li>`;
+    return;
+  }
+  const k = $('lq').value.trim().toLowerCase();
+  const list = k ? convs.filter(c => (c.title + ' ' + c.items.map(it => it.q + ' ' + (it.res ? it.res.title + ' ' + it.res.extract : '')).join(' ')).toLowerCase().includes(k)) : convs;
+  if(!list.length){ ul.innerHTML = `<li class="empty">${k ? 'Aucun résultat.' : 'Aucune conversation.'}</li>`; return; }
+  ul.innerHTML = list.map(c => {
     const d = new Date(c.date).toLocaleDateString('fr-FR',{day:'numeric',month:'short'});
     return `<li class="${cur && cur.id===c.id ? 'cur':''}">
       <button class="pick" data-id="${c.id}" type="button"><span>${esc(c.title)}</span><small>${d} · ${c.items.length} recherche${c.items.length>1?'s':''}</small></button>
-      <button class="del" data-del="${c.id}" type="button" aria-label="Supprimer la conversation ${esc(c.title)}">Supprimer</button>
+      <button class="ren" data-ren="${c.id}" type="button" aria-label="Renommer ${esc(c.title)}">Renommer</button>
+      <button class="del" data-del="${c.id}" type="button" aria-label="Supprimer ${esc(c.title)}">Supprimer</button>
     </li>`;
   }).join('');
 }
 $('list').addEventListener('click', e => {
-  const p = e.target.closest('[data-id]'), d = e.target.closest('[data-del]');
-  if(d) delConv(d.dataset.del); else if(p) openConv(p.dataset.id);
+  const g = a => e.target.closest('[' + a + ']');
+  let x;
+  if((x = g('data-del'))) delConv(x.dataset.del);
+  else if((x = g('data-ren'))) renConv(x.dataset.ren);
+  else if((x = g('data-id'))) openConv(x.dataset.id);
+  else if((x = g('data-favdel'))){ favs.splice(+x.dataset.favdel, 1); saveFavs(); renderList(); }
+  else if((x = g('data-fav'))) openFav(+x.dataset.fav);
 });
 
 function openPanel(){ document.body.classList.add('open'); }
@@ -162,11 +203,14 @@ function cardHTML(it, idx){
     ${r.img ? `<img src="${esc(r.img)}" alt="${esc(r.title)}">` : ''}
     <div class="body">
       <h2>${esc(r.title)}</h2>
-      <p class="lang">${r.lang==='fr' ? 'Wikipédia en français' : 'Wikipédia en anglais (rien en français)'}</p>
+      <p class="lang">${esc(langLabel(r))}</p>
       <p class="extract">${esc(r.extract)}</p>
+      <div class="more" id="more-${idx}">${it.showMore ? esc(it.more) : ''}</div>
       <div class="actions">
         <button class="sumbtn" data-i="${idx}" type="button">Résumer</button>
         ${'speechSynthesis' in window ? `<button class="alt listenbtn" data-i="${idx}" type="button">Écouter</button>` : ''}
+        ${r.src === 'wiktionary' ? '' : `<button class="alt morebtn" data-i="${idx}" type="button">${it.showMore ? 'Réduire' : 'Lire la suite'}</button>`}
+        <button class="alt favbtn" data-i="${idx}" type="button">${isFav(r.url) ? 'Retirer des favoris' : 'Favori'}</button>
         <button class="alt sharebtn" data-i="${idx}" type="button">Partager</button>
         <a class="btn alt" href="${esc(r.url)}" target="_blank" rel="noopener">Lire l'article</a>
       </div>
@@ -186,6 +230,8 @@ $('thread').addEventListener('click', e => {
   if(b.classList.contains('sumbtn')) summarize(+b.dataset.i, b);
   else if(b.classList.contains('listenbtn')) listen(+b.dataset.i, b);
   else if(b.classList.contains('sharebtn')) share(+b.dataset.i, b);
+  else if(b.classList.contains('morebtn')) more(+b.dataset.i, b);
+  else if(b.classList.contains('favbtn')) toggleFav(+b.dataset.i, b);
   else if(b.classList.contains('chip')){ $('q').value = b.dataset.t; doSearch(b.dataset.t); window.scrollTo({top:0,behavior:'smooth'}); }
 });
 
@@ -198,17 +244,34 @@ function clean(q){
     .trim();
   return c || q.trim();
 }
-async function wiki(lang, q){
-  const u = `https://${lang}.wikipedia.org/w/api.php?action=query&generator=search&gsrsearch=${encodeURIComponent(q)}&gsrlimit=5`
-    + `&prop=extracts|pageimages|info&exintro=1&explaintext=1&exsentences=5&piprop=thumbnail&pithumbsize=700&inprop=url&format=json&origin=*`;
+function wikiURL(lang, src, params){
+  return `https://${lang}.${src}.org/w/api.php?action=query&${params}&format=json&origin=*`;
+}
+function toRes(pages, lang, src){
+  pages = pages.slice().sort((a,b) => (a.index||0) - (b.index||0));
+  const p = pages[0];
+  if(!p || !p.extract) return null;
+  return { lang, src, title:p.title, extract:p.extract.trim(), img:(p.thumbnail && p.thumbnail.source) || '', url:p.fullurl,
+    others: pages.slice(1,5).map(o => ({ title:o.title, url:o.fullurl })) };
+}
+async function wiki(lang, q, src = 'wikipedia'){
+  const dict = src === 'wiktionary';
+  const u = wikiURL(lang, src, `generator=search&gsrsearch=${encodeURIComponent(q)}&gsrlimit=${dict ? 1 : 5}&prop=extracts|pageimages|info&explaintext=1&${dict ? 'exchars=1200' : 'exintro=1&exsentences=5'}&piprop=thumbnail&pithumbsize=700&inprop=url`);
   const r = await fetch(u);
   if(!r.ok) throw new Error('wiki');
   const j = await r.json();
-  const pages = j.query ? Object.values(j.query.pages).sort((a,b)=>(a.index||0)-(b.index||0)) : [];
-  const p = pages[0];
-  if(!p || !p.extract) return null;
-  return { lang, title:p.title, extract:p.extract.trim(), img:(p.thumbnail && p.thumbnail.source) || '', url:p.fullurl,
-    others: pages.slice(1,5).map(o => ({ title:o.title, url:o.fullurl })) };
+  return toRes(j.query ? Object.values(j.query.pages) : [], lang, src);
+}
+async function randomWiki(){
+  for(let k = 0; k < 3; k++){
+    const u = wikiURL('fr', 'wikipedia', 'generator=random&grnnamespace=0&grnlimit=1&prop=extracts|pageimages|info&explaintext=1&exintro=1&exsentences=5&piprop=thumbnail&pithumbsize=700&inprop=url');
+    const r = await fetch(u);
+    if(!r.ok) throw new Error('wiki');
+    const j = await r.json();
+    const res = toRes(j.query ? Object.values(j.query.pages) : [], 'fr', 'wikipedia');
+    if(res) return res;
+  }
+  return null;
 }
 
 $('f').addEventListener('submit', e => { e.preventDefault(); doSearch($('q').value.trim()); });
@@ -219,8 +282,9 @@ async function doSearch(raw){
   $('go').disabled = true;
   let item = { q: raw };
   try {
-    let res = await wiki('fr', clean(raw));
-    if(!res) res = await wiki('en', clean(raw));
+    const src = $('src').value;
+    let res = await wiki('fr', clean(raw), src);
+    if(!res) res = await wiki('en', clean(raw), src);
     if(res) item.res = res; else item.notfound = true;
   } catch(err){
     item.error = navigator.onLine ? 'Impossible de joindre Wikipédia. Réessaie dans un instant.' : 'Tu es hors ligne : la recherche est impossible, mais tu peux relire tes conversations.';
@@ -290,6 +354,116 @@ if(SR){
   };
 }
 if('serviceWorker' in navigator){ navigator.serviceWorker.register('./sw.js').catch(() => {}); }
+
+/* ---------- Favoris, suite, hasard, renommer, thème, sauvegarde ---------- */
+let favs = [];
+try { favs = JSON.parse(store.get('favs') || '[]'); } catch(e){ favs = []; }
+const saveFavs = () => store.set('favs', JSON.stringify(favs));
+const isFav = u => favs.some(f => f.url === u);
+function toggleFav(i, btn){
+  const r = cur.items[i].res;
+  if(isFav(r.url)) favs = favs.filter(f => f.url !== r.url);
+  else favs.unshift({ title:r.title, url:r.url, lang:r.lang, src:r.src || 'wikipedia', extract:r.extract, img:r.img || '', others:[] });
+  saveFavs();
+  btn.textContent = isFav(r.url) ? 'Retirer des favoris' : 'Favori';
+  if(tab === 'f') renderList();
+}
+function openFav(i){
+  const f = favs[i];
+  if(!f) return;
+  if(!cur) newConv();
+  if(!cur.items.length) cur.title = f.title;
+  cur.items.push({ q:f.title, res:Object.assign({}, f) });
+  persist(); renderThread(); renderList(); closePanel(); scrollLast();
+}
+function scrollLast(){
+  const c = document.querySelectorAll('#thread .card, #thread .msg');
+  const l = c[c.length-1];
+  if(l) l.scrollIntoView({behavior:'smooth', block:'start'});
+}
+async function more(i, btn){
+  const it = cur.items[i], r = it.res, box = $('more-'+i);
+  if(it.showMore){ it.showMore = false; }
+  else{
+    if(!it.more){
+      btn.disabled = true; btn.textContent = 'Chargement…';
+      try{
+        const u = `https://${r.lang}.wikipedia.org/w/api.php?action=query&prop=extracts&explaintext=1&exchars=6000&redirects=1&titles=${encodeURIComponent(r.title)}&format=json&origin=*`;
+        const j = await (await fetch(u)).json();
+        it.more = (Object.values(j.query.pages)[0].extract || '').trim();
+      }catch(e){
+        btn.disabled = false; btn.textContent = 'Lire la suite';
+        box.textContent = 'Impossible de charger la suite (hors ligne ?).';
+        return;
+      }
+      btn.disabled = false;
+    }
+    it.showMore = true;
+  }
+  persist();
+  box.textContent = it.showMore ? it.more : '';
+  btn.textContent = it.showMore ? 'Réduire' : 'Lire la suite';
+}
+$('rand').onclick = doRandom;
+async function doRandom(){
+  if(!cur) newConv();
+  $('rand').disabled = true;
+  const item = { q: 'Article au hasard' };
+  try{
+    const res = await randomWiki();
+    if(res) item.res = res; else item.notfound = true;
+  }catch(err){
+    item.error = navigator.onLine ? 'Impossible de joindre Wikipédia. Réessaie dans un instant.' : 'Tu es hors ligne : la recherche est impossible, mais tu peux relire tes conversations.';
+  }
+  if(!cur.items.length) cur.title = 'Article au hasard';
+  cur.items.push(item);
+  persist(); renderThread(); renderList();
+  $('rand').disabled = false;
+  scrollLast();
+}
+function renConv(id){
+  const c = convs.find(x => x.id === id);
+  if(!c) return;
+  const t = prompt('Nouveau nom de la conversation :', c.title);
+  if(t && t.trim()){ c.title = t.trim().slice(0,60); persist(); renderList(); }
+}
+document.querySelectorAll('.tab').forEach(b => b.onclick = () => { tab = b.dataset.tab; renderList(); });
+$('lq').addEventListener('input', renderList);
+
+function applyTheme(t){
+  document.documentElement.dataset.theme = t;
+  $('theme').textContent = t === 'dark' ? 'Clair' : 'Sombre';
+  const m = document.querySelector('meta[name=theme-color]');
+  if(m) m.content = t === 'dark' ? '#0f1a20' : '#f2f6f8';
+}
+applyTheme(store.get('theme') || (window.matchMedia && matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'));
+$('theme').onclick = () => {
+  const t = document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark';
+  store.set('theme', t); applyTheme(t);
+};
+
+$('exp').onclick = () => {
+  const blob = new Blob([JSON.stringify({ convs, favs }, null, 1)], { type:'application/json' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'cherche-sauvegarde-' + new Date().toISOString().slice(0,10) + '.json';
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+};
+$('impb').onclick = () => $('imp').click();
+$('imp').onchange = async e => {
+  const f = e.target.files[0];
+  if(!f) return;
+  try{
+    const d = JSON.parse(await f.text());
+    (d.convs || []).forEach(c => { if(c && c.id && Array.isArray(c.items) && !convs.some(x => x.id === c.id)) convs.push(c); });
+    (d.favs || []).forEach(v => { if(v && v.url && !isFav(v.url)) favs.push(v); });
+    convs.sort((a,b) => b.date - a.date);
+    persist(); saveFavs(); renderList();
+    alert('Sauvegarde restaurée.');
+  }catch(err){ alert("Ce fichier n'est pas une sauvegarde valide."); }
+  e.target.value = '';
+};
 
 /* ---------- Démarrage : nouvelle conversation à chaque ouverture ---------- */
 newConv();
