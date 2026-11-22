@@ -76,6 +76,9 @@ select{font:inherit;flex:1;min-width:0;padding:10px;border:1.5px solid var(--lin
 :root{color-scheme:light}
 :root[data-theme="dark"]{color-scheme:dark;--bg:#0f1a20;--card:#17262e;--ink:#e6eef2;--muted:#93a6b0;--line:#2a3d47;--accent:#5cc0d4;--accent-soft:#1d3640;--err:#ff8a78}
 :root[data-theme="dark"] button:not(.alt),:root[data-theme="dark"] .btn:not(.alt),:root[data-theme="dark"] .q{color:#06222b}
+.gal{display:grid;grid-template-columns:repeat(2,1fr);gap:8px;margin-top:14px}
+.gal:empty{display:none}
+.gal img{display:block;width:100%;height:110px;object-fit:cover;border-radius:10px;background:var(--accent-soft)}
 @media (prefers-reduced-motion:no-preference){
   #panel{transition:transform .2s ease,visibility .2s}
   .card{animation:in .25s ease-out}@keyframes in{from{opacity:0}to{opacity:1}}
@@ -102,12 +105,12 @@ select{font:inherit;flex:1;min-width:0;padding:10px;border:1.5px solid var(--lin
 <p class="sub">Tape une question, l'appli cherche sur Wikipédia.</p>
 
 <form id="f">
-  <input id="q" type="search" placeholder="Par exemple : Nikola Tesla" autocomplete="off" enterkeyhint="search" required>
+  <input id="q" type="search" placeholder="Une question, un lieu, un livre, la météo…" autocomplete="off" enterkeyhint="search" required>
   <button id="mic" class="alt" type="button" aria-label="Dicter la question" hidden><svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 14a3 3 0 0 0 3-3V5a3 3 0 0 0-6 0v6a3 3 0 0 0 3 3zm5-3a5 5 0 0 1-10 0H5a7 7 0 0 0 6 6.9V21h2v-3.1A7 7 0 0 0 19 11z"/></svg></button>
   <button id="go" type="submit">Chercher</button>
 </form>
 <div class="tools">
-  <select id="src" aria-label="Source de la recherche"><option value="wikipedia">Wikipédia</option><option value="wiktionary">Wiktionnaire (définitions)</option></select>
+  <select id="src" aria-label="Source de la recherche"><option value="auto">Automatique</option><option value="wikipedia">Wikipédia</option><option value="wiktionary">Wiktionnaire (définitions)</option><option value="osm">Lieux (carte)</option><option value="weather">Météo</option><option value="books">Livres</option><option value="wikiquote">Citations</option></select>
   <button id="rand" class="alt small" type="button">Article au hasard</button>
 </div>
 
@@ -154,8 +157,14 @@ function delConv(id){
 
 let tab = 'c';
 function langLabel(r){
-  const d = r.src === 'wiktionary', fr = r.lang === 'fr';
-  return d ? (fr ? 'Wiktionnaire en français' : 'Wiktionnaire en anglais (rien en français)') : (fr ? 'Wikipédia en français' : 'Wikipédia en anglais (rien en français)');
+  if(r.src === 'osm') return 'OpenStreetMap';
+  if(r.src === 'weather') return 'Open-Meteo';
+  if(r.src === 'books') return 'Open Library';
+  const n = { wikipedia:'Wikipédia', wiktionary:'Wiktionnaire', wikiquote:'Wikiquote' }[r.src || 'wikipedia'] || 'Wikipédia';
+  return r.lang === 'fr' ? `${n} en français` : `${n} en anglais (rien en français)`;
+}
+function linkLabel(r){
+  return { osm:'Voir la carte', books:'Fiche du livre', weather:'Détails météo', wikiquote:'Lire la page', wiktionary:'Lire la page' }[r.src] || "Lire l'article";
 }
 function renderList(){
   const ul = $('list');
@@ -197,7 +206,7 @@ $('newc').onclick = () => { newConv(); closePanel(); $('q').focus(); };
 /* ---------- Affichage ---------- */
 function cardHTML(it, idx){
   if(it.error) return `<div class="msg err">${esc(it.error)}</div>`;
-  if(it.notfound) return '<div class="msg">Aucun résultat sur Wikipédia (français ni anglais). Essaie avec d\'autres mots.</div>';
+  if(it.notfound) return '<div class="msg">Aucun résultat. Essaie avec d\'autres mots.</div>';
   const r = it.res;
   return `<article class="card">
     ${r.img ? `<img src="${esc(r.img)}" alt="${esc(r.title)}">` : ''}
@@ -209,12 +218,13 @@ function cardHTML(it, idx){
       <div class="actions">
         <button class="sumbtn" data-i="${idx}" type="button">Résumer</button>
         ${'speechSynthesis' in window ? `<button class="alt listenbtn" data-i="${idx}" type="button">Écouter</button>` : ''}
-        ${r.src === 'wiktionary' ? '' : `<button class="alt morebtn" data-i="${idx}" type="button">${it.showMore ? 'Réduire' : 'Lire la suite'}</button>`}
+        ${(r.src || 'wikipedia') === 'wikipedia' ? `<button class="alt morebtn" data-i="${idx}" type="button">${it.showMore ? 'Réduire' : 'Lire la suite'}</button><button class="alt photobtn" data-i="${idx}" type="button">${it.showGal ? 'Masquer les photos' : 'Photos'}</button>` : ''}
         <button class="alt favbtn" data-i="${idx}" type="button">${isFav(r.url) ? 'Retirer des favoris' : 'Favori'}</button>
         <button class="alt sharebtn" data-i="${idx}" type="button">Partager</button>
-        <a class="btn alt" href="${esc(r.url)}" target="_blank" rel="noopener">Lire l'article</a>
+        <a class="btn alt" href="${esc(r.url)}" target="_blank" rel="noopener">${esc(linkLabel(r))}</a>
       </div>
       <div class="sumout" id="sum-${idx}" aria-live="polite">${it.summary ? sumHTML(it) : ''}</div>
+      <div class="gal" id="gal-${idx}">${it.showGal ? galHTML(it.gal) : ''}</div>
       ${chipsHTML(r)}
     </div>
   </article>`;
@@ -231,8 +241,9 @@ $('thread').addEventListener('click', e => {
   else if(b.classList.contains('listenbtn')) listen(+b.dataset.i, b);
   else if(b.classList.contains('sharebtn')) share(+b.dataset.i, b);
   else if(b.classList.contains('morebtn')) more(+b.dataset.i, b);
+  else if(b.classList.contains('photobtn')) photos(+b.dataset.i, b);
   else if(b.classList.contains('favbtn')) toggleFav(+b.dataset.i, b);
-  else if(b.classList.contains('chip')){ $('q').value = b.dataset.t; doSearch(b.dataset.t); window.scrollTo({top:0,behavior:'smooth'}); }
+  else if(b.classList.contains('chip')){ $('q').value = b.dataset.t; doSearch(b.dataset.t, b.dataset.s); window.scrollTo({top:0,behavior:'smooth'}); }
 });
 
 /* ---------- Wikipédia ---------- */
@@ -255,8 +266,8 @@ function toRes(pages, lang, src){
     others: pages.slice(1,5).map(o => ({ title:o.title, url:o.fullurl })) };
 }
 async function wiki(lang, q, src = 'wikipedia'){
-  const dict = src === 'wiktionary';
-  const u = wikiURL(lang, src, `generator=search&gsrsearch=${encodeURIComponent(q)}&gsrlimit=${dict ? 1 : 5}&prop=extracts|pageimages|info&explaintext=1&${dict ? 'exchars=1200' : 'exintro=1&exsentences=5'}&piprop=thumbnail&pithumbsize=700&inprop=url`);
+  const dict = src !== 'wikipedia';
+  const u = wikiURL(lang, src, `generator=search&gsrsearch=${encodeURIComponent(q)}&gsrlimit=${dict ? 1 : 5}&prop=extracts|pageimages|info&explaintext=1&${dict ? 'exchars=' + (src === 'wikiquote' ? 1800 : 1200) : 'exintro=1&exsentences=5'}&piprop=thumbnail&pithumbsize=700&inprop=url`);
   const r = await fetch(u);
   if(!r.ok) throw new Error('wiki');
   const j = await r.json();
@@ -276,18 +287,17 @@ async function randomWiki(){
 
 $('f').addEventListener('submit', e => { e.preventDefault(); doSearch($('q').value.trim()); });
 
-async function doSearch(raw){
+async function doSearch(raw, force){
   if(!raw) return;
   if(!cur) newConv();
   $('go').disabled = true;
   let item = { q: raw };
   try {
-    const src = $('src').value;
-    let res = await wiki('fr', clean(raw), src);
-    if(!res) res = await wiki('en', clean(raw), src);
+    const src = force || pickSource(raw);
+    let res = await run(src, raw, !!force);
     if(res) item.res = res; else item.notfound = true;
   } catch(err){
-    item.error = navigator.onLine ? 'Impossible de joindre Wikipédia. Réessaie dans un instant.' : 'Tu es hors ligne : la recherche est impossible, mais tu peux relire tes conversations.';
+    item.error = navigator.onLine ? 'Impossible de joindre le site de recherche. Réessaie dans un instant.' : 'Tu es hors ligne : la recherche est impossible, mais tu peux relire tes conversations.';
   }
   if(!cur.items.length) cur.title = raw.length > 40 ? raw.slice(0,40) + '…' : raw;
   cur.items.push(item);
@@ -317,7 +327,7 @@ function summarize(i, btn){
 /* ---------- Suggestions, lecture, partage, voix, hors ligne ---------- */
 function chipsHTML(r){
   if(!r.others || !r.others.length) return '';
-  return `<div class="chips"><p class="lang">D'autres articles proches :</p>${r.others.map(o => `<button class="chip" data-t="${esc(o.title)}" type="button">${esc(o.title)}</button>`).join('')}</div>`;
+  return `<div class="chips"><p class="lang">D'autres articles proches :</p>${r.others.map(o => `<button class="chip" data-s="${esc(r.src || 'wikipedia')}" data-t="${esc(o.q || o.title)}" type="button">${esc(o.title)}</button>`).join('')}</div>`;
 }
 function listen(i, btn){
   const sy = window.speechSynthesis;
@@ -413,7 +423,7 @@ async function doRandom(){
     const res = await randomWiki();
     if(res) item.res = res; else item.notfound = true;
   }catch(err){
-    item.error = navigator.onLine ? 'Impossible de joindre Wikipédia. Réessaie dans un instant.' : 'Tu es hors ligne : la recherche est impossible, mais tu peux relire tes conversations.';
+    item.error = navigator.onLine ? 'Impossible de joindre le site de recherche. Réessaie dans un instant.' : 'Tu es hors ligne : la recherche est impossible, mais tu peux relire tes conversations.';
   }
   if(!cur.items.length) cur.title = 'Article au hasard';
   cur.items.push(item);
@@ -464,6 +474,134 @@ $('imp').onchange = async e => {
   }catch(err){ alert("Ce fichier n'est pas une sauvegarde valide."); }
   e.target.value = '';
 };
+
+/* ---------- Autres sources : lieux, météo, livres, citations, photos ---------- */
+async function getJSON(u){
+  const r = await fetch(u);
+  if(!r.ok) throw new Error('http');
+  return r.json();
+}
+function pickSource(raw){
+  const v = $('src').value;
+  if(v !== 'auto') return v;
+  const t = raw.toLowerCase();
+  if(/\b(météo|meteo|température|temperature|quel temps)\b/.test(t)) return 'weather';
+  if(/\b(où se trouve|ou se trouve|où est|ou est|carte de|carte du|adresse de|adresse du|plan de|localiser|itinéraire)\b/.test(t)) return 'osm';
+  if(/\b(livre|livres|roman|romans|auteur|isbn)\b/.test(t)) return 'books';
+  if(/\b(citation|citations|phrase célèbre|phrases célèbres)\b/.test(t)) return 'wikiquote';
+  if(/\b(définition|definition|signifie|veut dire|signification)\b/.test(t)) return 'wiktionary';
+  return 'wikipedia';
+}
+const strip = (t, w) => t.replace(new RegExp('(^|\\s)(?:' + w + ')(?=\\s|$)', 'gi'), ' ').replace(/\s+/g, ' ').trim();
+function queryFor(src, raw, exact){
+  let t = raw.trim().replace(/[?!.]+$/, '').replace(/’/g, "'");
+  if(exact) return t;
+  if(src === 'weather'){
+    t = strip(t, "quelle|quel|est|la|le|temps|fait-il|fait|il|météo|meteo|température|temperature|actuelle|aujourd'hui|demain|maintenant");
+    t = t.replace(/^(à|a|de|du|en|pour|sur|au|aux|dans)\s+/i, '');
+  }else if(src === 'osm'){
+    t = t.replace(/^(où se trouve|ou se trouve|où est|ou est|carte de|carte du|adresse de|adresse du|plan de|localiser|localisation de|itinéraire pour aller à)\s+/i, '');
+  }else if(src === 'books'){
+    t = strip(t, 'livre|livres|roman|romans|auteur|isbn').replace(/^(de\s+|du\s+|sur\s+|le\s+|la\s+|les\s+|un\s+|une\s+|des\s+|d')/i, '');
+  }else if(src === 'wikiquote'){
+    t = strip(t, 'citation|citations|phrase célèbre|phrases célèbres').replace(/^(de\s+|du\s+|sur\s+|par\s+|d')/i, '');
+  }else if(src === 'wiktionary'){
+    t = t.replace(/^(définition|definition|signification)( de| du| d')?\s*/i, '')
+         .replace(/^(que |qu'est-ce que )?(signifie|veut dire)\s+(le mot |l'expression )?/i, '')
+         .replace(/\s+(signifie|veut dire)$/i, '');
+  }else t = clean(t);
+  return t || raw.trim();
+}
+async function run(src, raw, exact){
+  const q = queryFor(src, raw, exact);
+  if(src === 'weather') return weather(q);
+  if(src === 'osm') return places(q);
+  if(src === 'books') return books(q);
+  let res = await wiki('fr', q, src);
+  if(!res) res = await wiki('en', q, src);
+  return res;
+}
+async function places(q){
+  const j = await getJSON(`https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(q)}&format=jsonv2&limit=5&accept-language=fr`);
+  if(!j.length) return null;
+  const a = j.map(o => ({ title:o.name || o.display_name.split(',')[0], full:o.display_name, lat:o.lat, lon:o.lon, type:o.type }));
+  const f = a[0];
+  return { lang:'fr', src:'osm', title:f.title,
+    extract:`${f.full}\nType : ${f.type}.\nCoordonnées : ${(+f.lat).toFixed(4)}, ${(+f.lon).toFixed(4)}.`,
+    img:'', url:`https://www.openstreetmap.org/?mlat=${f.lat}&mlon=${f.lon}#map=14/${f.lat}/${f.lon}`,
+    others:a.slice(1).map(o => ({ title:o.title + ' · ' + o.full.split(',').slice(1,3).join(',').trim(), q:o.full })) };
+}
+function wmo(c){
+  if(c === 0) return 'ciel dégagé';
+  if(c === 1) return 'plutôt dégagé';
+  if(c === 2) return 'partiellement nuageux';
+  if(c === 3) return 'couvert';
+  if(c === 45 || c === 48) return 'brouillard';
+  if(c >= 51 && c <= 57) return 'bruine';
+  if(c >= 61 && c <= 67) return 'pluie';
+  if(c >= 71 && c <= 77) return 'neige';
+  if(c >= 80 && c <= 82) return 'averses';
+  if(c === 85 || c === 86) return 'averses de neige';
+  if(c >= 95) return 'orage';
+  return 'temps variable';
+}
+async function weather(q){
+  const g = await getJSON(`https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(q)}&count=1&language=fr`);
+  const p = g.results && g.results[0];
+  if(!p) return null;
+  const j = await getJSON(`https://api.open-meteo.com/v1/forecast?latitude=${p.latitude}&longitude=${p.longitude}&current=temperature_2m,apparent_temperature,weather_code,wind_speed_10m&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max&timezone=auto&forecast_days=4`);
+  const c = j.current, d = j.daily;
+  const days = d.time.map((t,i) => {
+    const dt = new Date(t + 'T12:00:00').toLocaleDateString('fr-FR', { weekday:'long', day:'numeric', month:'long' });
+    const pr = d.precipitation_probability_max[i];
+    return `${dt} : ${Math.round(d.temperature_2m_min[i])} à ${Math.round(d.temperature_2m_max[i])} °C, ${wmo(d.weather_code[i])}${pr != null ? ', pluie ' + pr + ' %' : ''}`;
+  });
+  const place = [p.name, p.admin1, p.country].filter(Boolean).join(', ');
+  return { lang:'fr', src:'weather', title:'Météo à ' + p.name,
+    extract:`${place}\nMaintenant : ${Math.round(c.temperature_2m)} °C (ressenti ${Math.round(c.apparent_temperature)} °C), ${wmo(c.weather_code)}, vent ${Math.round(c.wind_speed_10m)} km/h.\n\nProchains jours :\n${days.join('\n')}`,
+    img:'', url:'https://open-meteo.com/', others:[] };
+}
+async function books(q){
+  const j = await getJSON(`https://openlibrary.org/search.json?q=${encodeURIComponent(q)}&limit=5&fields=key,title,author_name,first_publish_year,cover_i,subject`);
+  const d = j.docs || [];
+  if(!d.length) return null;
+  const f = d[0];
+  const txt = (f.author_name ? 'Par ' + f.author_name.slice(0,3).join(', ') + '.' : '')
+    + (f.first_publish_year ? ' Première publication : ' + f.first_publish_year + '.' : '')
+    + (f.subject ? '\nThèmes : ' + f.subject.slice(0,6).join(', ') + '.' : '');
+  return { lang:'fr', src:'books', title:f.title, extract:txt.trim() || 'Aucune description disponible.',
+    img:f.cover_i ? `https://covers.openlibrary.org/b/id/${f.cover_i}-M.jpg` : '', url:'https://openlibrary.org' + f.key,
+    others:d.slice(1).map(b => ({ title:b.title + (b.author_name ? ' · ' + b.author_name[0] : ''), q:b.title + (b.author_name ? ' ' + b.author_name[0] : '') })) };
+}
+function galHTML(g){
+  return g && g.length ? g.map(x => `<a href="${esc(x.page)}" target="_blank" rel="noopener"><img loading="lazy" src="${esc(x.thumb)}" alt="${esc(x.title)}"></a>`).join('') : 'Aucune photo trouvée.';
+}
+async function photos(i, btn){
+  const it = cur.items[i], box = $('gal-'+i);
+  if(it.showGal){ it.showGal = false; }
+  else{
+    if(!it.gal){
+      btn.disabled = true; btn.textContent = 'Chargement…';
+      try{
+        const j = await getJSON(`https://commons.wikimedia.org/w/api.php?action=query&generator=search&gsrnamespace=6&gsrsearch=${encodeURIComponent(it.res.title)}&gsrlimit=12&prop=imageinfo&iiprop=url&iiurlwidth=360&format=json&origin=*`);
+        it.gal = Object.values((j.query && j.query.pages) || {})
+          .sort((a,b) => (a.index||0) - (b.index||0))
+          .filter(p => p.imageinfo && /\.(jpe?g|png|webp)$/i.test(p.title))
+          .slice(0,6)
+          .map(p => ({ thumb:p.imageinfo[0].thumburl, page:p.imageinfo[0].descriptionurl, title:p.title.replace(/^(Fichier|File):/, '') }));
+      }catch(e){
+        btn.disabled = false; btn.textContent = 'Photos';
+        box.textContent = 'Impossible de charger les photos (hors ligne ?).';
+        return;
+      }
+      btn.disabled = false;
+    }
+    it.showGal = true;
+  }
+  persist();
+  box.innerHTML = it.showGal ? galHTML(it.gal) : '';
+  btn.textContent = it.showGal ? 'Masquer les photos' : 'Photos';
+}
 
 /* ---------- Démarrage : nouvelle conversation à chaque ouverture ---------- */
 newConv();
