@@ -6,6 +6,7 @@
 <meta name="theme-color" content="#f2f6f8">
 <meta name="mobile-web-app-capable" content="yes">
 <title>Cherche</title>
+<link rel="manifest" href="manifest.webmanifest">
 <style>
 :root{--bg:#f2f6f8;--card:#ffffff;--ink:#13222c;--muted:#5d6f7a;--line:#d5e0e6;--accent:#0d5c6e;--accent-soft:#e1eef2;--err:#a63a2b}
 *{box-sizing:border-box}
@@ -30,7 +31,7 @@ button:disabled{opacity:.6}
 .lang{color:var(--muted);font-size:.85rem;margin:0 0 10px}
 .extract{margin:0 0 14px;white-space:pre-line}
 .actions{display:flex;gap:8px;flex-wrap:wrap}
-.actions>*{flex:1 1 140px}
+.actions>*{flex:1 1 110px}
 .sum{margin-top:14px;padding:14px;border-left:4px solid var(--accent);background:var(--accent-soft);border-radius:0 12px 12px 0}
 .sum b{display:block;margin-bottom:4px;color:var(--accent)}
 .sum.err{border-color:var(--err)}.sum.err b{color:var(--err)}
@@ -39,6 +40,12 @@ button:disabled{opacity:.6}
 summary{cursor:pointer;font-weight:600}
 details p{color:var(--muted);font-size:.9rem;margin:10px 0}
 .row{display:flex;gap:8px}
+[hidden]{display:none!important}
+#mic{padding:14px 13px;display:flex;align-items:center}
+#mic.rec{background:var(--err);color:#fff}
+.chips{margin-top:16px;display:flex;flex-wrap:wrap;gap:8px}
+.chips .lang{width:100%;margin:0}
+.chip{background:var(--accent-soft);color:var(--accent);padding:8px 12px;font-size:.9rem;font-weight:500}
 /* panneau historique */
 #scrim{position:fixed;inset:0;background:rgba(19,34,44,.45);display:none;z-index:10}
 #panel{position:fixed;top:0;bottom:0;left:0;width:min(86vw,340px);background:var(--card);z-index:11;transform:translateX(-100%);visibility:hidden;display:flex;flex-direction:column;padding:env(safe-area-inset-top) 0 env(safe-area-inset-bottom);box-shadow:2px 0 16px rgba(0,0,0,.15)}
@@ -78,6 +85,7 @@ body.open #panel{transform:none;visibility:visible}
 
 <form id="f">
   <input id="q" type="search" placeholder="Par exemple : Nikola Tesla" autocomplete="off" enterkeyhint="search" required>
+  <button id="mic" class="alt" type="button" aria-label="Dicter la question" hidden><svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 14a3 3 0 0 0 3-3V5a3 3 0 0 0-6 0v6a3 3 0 0 0 3 3zm5-3a5 5 0 0 1-10 0H5a7 7 0 0 0 6 6.9V21h2v-3.1A7 7 0 0 0 19 11z"/></svg></button>
   <button id="go" type="submit">Chercher</button>
 </form>
 
@@ -158,9 +166,12 @@ function cardHTML(it, idx){
       <p class="extract">${esc(r.extract)}</p>
       <div class="actions">
         <button class="sumbtn" data-i="${idx}" type="button">Résumer</button>
+        ${'speechSynthesis' in window ? `<button class="alt listenbtn" data-i="${idx}" type="button">Écouter</button>` : ''}
+        <button class="alt sharebtn" data-i="${idx}" type="button">Partager</button>
         <a class="btn alt" href="${esc(r.url)}" target="_blank" rel="noopener">Lire l'article</a>
       </div>
       <div class="sumout" id="sum-${idx}" aria-live="polite">${it.summary ? sumHTML(it) : ''}</div>
+      ${chipsHTML(r)}
     </div>
   </article>`;
 }
@@ -170,8 +181,12 @@ function renderThread(){
   t.innerHTML = cur.items.map((it,i) => `<div class="q">${esc(it.q)}</div>${cardHTML(it,i)}`).join('');
 }
 $('thread').addEventListener('click', e => {
-  const b = e.target.closest('.sumbtn');
-  if(b) summarize(+b.dataset.i, b);
+  const b = e.target.closest('button');
+  if(!b) return;
+  if(b.classList.contains('sumbtn')) summarize(+b.dataset.i, b);
+  else if(b.classList.contains('listenbtn')) listen(+b.dataset.i, b);
+  else if(b.classList.contains('sharebtn')) share(+b.dataset.i, b);
+  else if(b.classList.contains('chip')){ $('q').value = b.dataset.t; doSearch(b.dataset.t); window.scrollTo({top:0,behavior:'smooth'}); }
 });
 
 /* ---------- Wikipédia ---------- */
@@ -184,19 +199,21 @@ function clean(q){
   return c || q.trim();
 }
 async function wiki(lang, q){
-  const u = `https://${lang}.wikipedia.org/w/api.php?action=query&generator=search&gsrsearch=${encodeURIComponent(q)}&gsrlimit=1`
+  const u = `https://${lang}.wikipedia.org/w/api.php?action=query&generator=search&gsrsearch=${encodeURIComponent(q)}&gsrlimit=5`
     + `&prop=extracts|pageimages|info&exintro=1&explaintext=1&exsentences=5&piprop=thumbnail&pithumbsize=700&inprop=url&format=json&origin=*`;
   const r = await fetch(u);
   if(!r.ok) throw new Error('wiki');
   const j = await r.json();
-  const p = j.query && Object.values(j.query.pages)[0];
+  const pages = j.query ? Object.values(j.query.pages).sort((a,b)=>(a.index||0)-(b.index||0)) : [];
+  const p = pages[0];
   if(!p || !p.extract) return null;
-  return { lang, title:p.title, extract:p.extract.trim(), img:(p.thumbnail && p.thumbnail.source) || '', url:p.fullurl };
+  return { lang, title:p.title, extract:p.extract.trim(), img:(p.thumbnail && p.thumbnail.source) || '', url:p.fullurl,
+    others: pages.slice(1,5).map(o => ({ title:o.title, url:o.fullurl })) };
 }
 
-$('f').addEventListener('submit', async e => {
-  e.preventDefault();
-  const raw = $('q').value.trim();
+$('f').addEventListener('submit', e => { e.preventDefault(); doSearch($('q').value.trim()); });
+
+async function doSearch(raw){
   if(!raw) return;
   if(!cur) newConv();
   $('go').disabled = true;
@@ -206,7 +223,7 @@ $('f').addEventListener('submit', async e => {
     if(!res) res = await wiki('en', clean(raw));
     if(res) item.res = res; else item.notfound = true;
   } catch(err){
-    item.error = 'Impossible de joindre Wikipédia. Vérifie ta connexion et réessaie.';
+    item.error = navigator.onLine ? 'Impossible de joindre Wikipédia. Réessaie dans un instant.' : 'Tu es hors ligne : la recherche est impossible, mais tu peux relire tes conversations.';
   }
   if(!cur.items.length) cur.title = raw.length > 40 ? raw.slice(0,40) + '…' : raw;
   cur.items.push(item);
@@ -216,7 +233,7 @@ $('f').addEventListener('submit', async e => {
   const cards = document.querySelectorAll('#thread .card, #thread .msg');
   const last = cards[cards.length-1];
   if(last) last.scrollIntoView({behavior:'smooth', block:'start'});
-});
+}
 
 /* ---------- Résumé simple (sans IA, rien à télécharger) ---------- */
 function sumHTML(it){
@@ -232,6 +249,47 @@ function summarize(i, btn){
   persist();
   $('sum-'+i).innerHTML = sumHTML(it);
 }
+
+/* ---------- Suggestions, lecture, partage, voix, hors ligne ---------- */
+function chipsHTML(r){
+  if(!r.others || !r.others.length) return '';
+  return `<div class="chips"><p class="lang">D'autres articles proches :</p>${r.others.map(o => `<button class="chip" data-t="${esc(o.title)}" type="button">${esc(o.title)}</button>`).join('')}</div>`;
+}
+function listen(i, btn){
+  const sy = window.speechSynthesis;
+  if(!sy) return;
+  if(sy.speaking){ sy.cancel(); document.querySelectorAll('.listenbtn').forEach(b => b.textContent = 'Écouter'); return; }
+  const it = cur.items[i];
+  const u = new SpeechSynthesisUtterance(it.summary || it.res.extract);
+  u.lang = it.res.lang === 'fr' ? 'fr-FR' : 'en-US';
+  u.onend = u.onerror = () => { btn.textContent = 'Écouter'; };
+  btn.textContent = 'Arrêter';
+  sy.speak(u);
+}
+async function share(i, btn){
+  const r = cur.items[i].res, it = cur.items[i];
+  const text = it.summary || firstSentences(r.extract, 2);
+  try{
+    if(navigator.share){ await navigator.share({ title:r.title, text, url:r.url }); return; }
+    await navigator.clipboard.writeText(`${r.title}\n${text}\n${r.url}`);
+    btn.textContent = 'Copié';
+    setTimeout(() => btn.textContent = 'Partager', 1500);
+  }catch(e){}
+}
+const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+if(SR){
+  const mic = $('mic');
+  mic.hidden = false;
+  mic.onclick = () => {
+    const rec = new SR();
+    rec.lang = 'fr-FR'; rec.interimResults = false; rec.maxAlternatives = 1;
+    mic.classList.add('rec');
+    rec.onresult = e => { const t = e.results[0][0].transcript; $('q').value = t; doSearch(t); };
+    rec.onend = rec.onerror = () => mic.classList.remove('rec');
+    try{ rec.start(); }catch(e){ mic.classList.remove('rec'); }
+  };
+}
+if('serviceWorker' in navigator){ navigator.serviceWorker.register('./sw.js').catch(() => {}); }
 
 /* ---------- Démarrage : nouvelle conversation à chaque ouverture ---------- */
 newConv();
