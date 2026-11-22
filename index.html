@@ -79,6 +79,14 @@ select{font:inherit;flex:1;min-width:0;padding:10px;border:1.5px solid var(--lin
 .gal{display:grid;grid-template-columns:repeat(2,1fr);gap:8px;margin-top:14px}
 .gal:empty{display:none}
 .gal img{display:block;width:100%;height:110px;object-fit:cover;border-radius:10px;background:var(--accent-soft)}
+.today{margin:0 0 14px;background:var(--card);border:1px solid var(--line);border-radius:14px;padding:12px 14px}
+.today p{margin:8px 0}.today b{color:var(--accent)}
+@media print{
+  body{background:#fff;color:#000;max-width:none;padding:0}
+  header,form,.tools,.sub,#today,#panel,#scrim,.actions,.chips,.gal{display:none!important}
+  .card{break-inside:avoid;border:1px solid #999}
+  .q{background:#eee;color:#000}
+}
 @media (prefers-reduced-motion:no-preference){
   #panel{transition:transform .2s ease,visibility .2s}
   .card{animation:in .25s ease-out}@keyframes in{from{opacity:0}to{opacity:1}}
@@ -103,6 +111,7 @@ select{font:inherit;flex:1;min-width:0;padding:10px;border:1.5px solid var(--lin
   <div class="hb"><button id="theme" class="alt small" type="button">Sombre</button><button id="openp" class="alt small" type="button">Conversations</button></div>
 </header>
 <p class="sub">Tape une question, l'appli cherche sur Wikipédia.</p>
+<details id="today" class="today" hidden><summary id="todayT">Ce jour-là</summary><div id="todayBody"></div></details>
 
 <form id="f">
   <input id="q" type="search" placeholder="Une question, un lieu, un livre, la météo…" autocomplete="off" enterkeyhint="search" required>
@@ -110,10 +119,14 @@ select{font:inherit;flex:1;min-width:0;padding:10px;border:1.5px solid var(--lin
   <button id="go" type="submit">Chercher</button>
 </form>
 <div class="tools">
-  <select id="src" aria-label="Source de la recherche"><option value="auto">Automatique</option><option value="events">Année ou date (événements)</option><option value="wikipedia">Wikipédia</option><option value="wiktionary">Wiktionnaire (définitions)</option><option value="osm">Lieux (carte)</option><option value="weather">Météo</option><option value="books">Livres</option><option value="wikiquote">Citations</option></select>
+  <select id="src" aria-label="Source de la recherche"><option value="auto">Automatique</option><option value="events">Année ou date (événements)</option><option value="wikipedia">Wikipédia</option><option value="wiktionary">Wiktionnaire (définitions)</option><option value="osm">Lieux (carte)</option><option value="weather">Météo</option><option value="sun">Soleil et air</option><option value="country">Pays</option><option value="calc">Calcul / conversion</option><option value="compare">Comparer deux sujets</option><option value="books">Livres</option><option value="wikiquote">Citations</option></select>
   <button id="rand" class="alt small" type="button">Article au hasard</button>
 </div>
 
+<div class="tools">
+  <button id="xtxt" class="alt small" type="button">Exporter en texte</button>
+  <button id="xpdf" class="alt small" type="button">Exporter en PDF</button>
+</div>
 <div id="thread" aria-live="polite"></div>
 
 <script>
@@ -158,6 +171,10 @@ function delConv(id){
 let tab = 'c';
 function langLabel(r){
   if(r.src === 'osm') return 'OpenStreetMap';
+  if(r.src === 'country') return 'Fiche pays';
+  if(r.src === 'sun') return 'Open-Meteo (soleil et air)';
+  if(r.src === 'calc') return 'Calcul (fait sur ton téléphone)';
+  if(r.src === 'compare') return 'Wikipédia · comparaison';
   if(r.src === 'weather') return 'Open-Meteo';
   if(r.src === 'books') return 'Open Library';
   if(r.src === 'events') return r.lang === 'fr' ? 'Wikipédia · événements' : 'Wikipédia · événements (en anglais, rien en français)';
@@ -165,17 +182,20 @@ function langLabel(r){
   return r.lang === 'fr' ? `${n} en français` : `${n} en anglais (rien en français)`;
 }
 function linkLabel(r){
-  return { osm:'Voir la carte', books:'Fiche du livre', weather:'Détails météo', wikiquote:'Lire la page', wiktionary:'Lire la page', events:'Lire la page' }[r.src] || "Lire l'article";
+  return { osm:'Voir la carte', books:'Fiche du livre', weather:'Détails météo', wikiquote:'Lire la page', wiktionary:'Lire la page', events:'Lire la page', country:'Voir sur Wikipédia', sun:'Détails Open-Meteo', compare:'Lire le premier article' }[r.src] || "Lire l'article";
 }
 function renderList(){
   const ul = $('list');
   document.querySelectorAll('.tab').forEach(b => b.classList.toggle('on', b.dataset.tab === tab));
-  $('lq').hidden = tab !== 'c';
+  $('lq').placeholder = tab === 'f' ? 'Chercher dans mes favoris' : 'Chercher dans mes conversations';
+  const k = $('lq').value.trim().toLowerCase();
   if(tab === 'f'){
-    ul.innerHTML = favs.length ? favs.map((f,i) => `<li><button class="pick" data-fav="${i}" type="button"><span>${esc(f.title)}</span><small>${esc(langLabel(f))}</small></button><button class="del" data-favdel="${i}" type="button">Retirer</button></li>`).join('') : `<li class="empty">Aucun favori pour l'instant.</li>`;
+    const rows = favs.map((f,i) => ({ f, i }))
+      .filter(({f}) => !k || (f.title + ' ' + (f.note || '') + ' ' + (f.folder || '')).toLowerCase().includes(k))
+      .sort((a,b) => (a.f.folder || '\uffff').localeCompare(b.f.folder || '\uffff'));
+    ul.innerHTML = rows.length ? rows.map(({f,i}) => `<li><button class="pick" data-fav="${i}" type="button"><span>${esc(f.title)}</span><small>${esc((f.folder ? f.folder + ' · ' : '') + (f.note || langLabel(f)))}</small></button><button class="ren" data-favnote="${i}" type="button" aria-label="Note et dossier de ${esc(f.title)}">Note</button><button class="del" data-favdel="${i}" type="button">Retirer</button></li>`).join('') : `<li class="empty">${k ? 'Aucun résultat.' : "Aucun favori pour l'instant."}</li>`;
     return;
   }
-  const k = $('lq').value.trim().toLowerCase();
   const list = k ? convs.filter(c => (c.title + ' ' + c.items.map(it => it.q + ' ' + (it.res ? it.res.title + ' ' + it.res.extract : '')).join(' ')).toLowerCase().includes(k)) : convs;
   if(!list.length){ ul.innerHTML = `<li class="empty">${k ? 'Aucun résultat.' : 'Aucune conversation.'}</li>`; return; }
   ul.innerHTML = list.map(c => {
@@ -193,6 +213,7 @@ $('list').addEventListener('click', e => {
   if((x = g('data-del'))) delConv(x.dataset.del);
   else if((x = g('data-ren'))) renConv(x.dataset.ren);
   else if((x = g('data-id'))) openConv(x.dataset.id);
+  else if((x = g('data-favnote'))) editFav(+x.dataset.favnote);
   else if((x = g('data-favdel'))){ favs.splice(+x.dataset.favdel, 1); saveFavs(); renderList(); }
   else if((x = g('data-fav'))) openFav(+x.dataset.fav);
 });
@@ -220,9 +241,9 @@ function cardHTML(it, idx){
         <button class="sumbtn" data-i="${idx}" type="button">Résumer</button>
         ${'speechSynthesis' in window ? `<button class="alt listenbtn" data-i="${idx}" type="button">Écouter</button>` : ''}
         ${(r.src || 'wikipedia') === 'wikipedia' ? `<button class="alt morebtn" data-i="${idx}" type="button">${it.showMore ? 'Réduire' : 'Lire la suite'}</button><button class="alt photobtn" data-i="${idx}" type="button">${it.showGal ? 'Masquer les photos' : 'Photos'}</button>` : ''}
-        <button class="alt favbtn" data-i="${idx}" type="button">${isFav(r.url) ? 'Retirer des favoris' : 'Favori'}</button>
+        ${r.url ? `<button class="alt favbtn" data-i="${idx}" type="button">${isFav(r.url) ? 'Retirer des favoris' : 'Favori'}</button>` : ''}
         <button class="alt sharebtn" data-i="${idx}" type="button">Partager</button>
-        <a class="btn alt" href="${esc(r.url)}" target="_blank" rel="noopener">${esc(linkLabel(r))}</a>
+        ${r.url ? `<a class="btn alt" href="${esc(r.url)}" target="_blank" rel="noopener">${esc(linkLabel(r))}</a>` : ''}
       </div>
       <div class="sumout" id="sum-${idx}" aria-live="polite">${it.summary ? sumHTML(it) : ''}</div>
       <div class="gal" id="gal-${idx}">${it.showGal ? galHTML(it.gal) : ''}</div>
@@ -330,7 +351,7 @@ function summarize(i, btn){
 /* ---------- Suggestions, lecture, partage, voix, hors ligne ---------- */
 function chipsHTML(r){
   if(!r.others || !r.others.length) return '';
-  return `<div class="chips"><p class="lang">D'autres articles proches :</p>${r.others.map(o => `<button class="chip" data-s="${esc(r.src || 'wikipedia')}" data-t="${esc(o.q || o.title)}" type="button">${esc(o.title)}</button>`).join('')}</div>`;
+  return `<div class="chips"><p class="lang">D'autres articles proches :</p>${r.others.map(o => `<button class="chip" data-s="${esc(o.s || r.src || 'wikipedia')}" data-t="${esc(o.q || o.title)}" type="button">${esc(o.title)}</button>`).join('')}</div>`;
 }
 function listen(i, btn){
   const sy = window.speechSynthesis;
@@ -492,6 +513,10 @@ function pickSource(raw){
   if(dd && (/^(?:en |l'année |année )?\d{3,4}$/.test(t)
     || (dd.month && /^(?:le )?(?:\d{1,2}(?:er)?\s+[a-zéûè]+\s+|\d{1,2}[\/.-]\d{1,2}[\/.-]|[a-zéûè]+\s+)\d{3,4}$/.test(t))
     || /(événement|evenement|s'est[- ]il passé|s'est passé)/.test(t))) return 'events';
+  if(calc(raw)) return 'calc';
+  if(compareAuto(raw)) return 'compare';
+  if(/\b(qualité de l'air|qualite de l'air|pollution|lever du soleil|coucher du soleil)\b/.test(t)) return 'sun';
+  if(/\b(capitale|drapeau|habitants|fiche pays)\b/.test(t)) return 'country';
   if(/\b(météo|meteo|température|temperature|quel temps)\b/.test(t)) return 'weather';
   if(/\b(où se trouve|ou se trouve|où est|ou est|carte de|carte du|adresse de|adresse du|plan de|localiser|itinéraire)\b/.test(t)) return 'osm';
   if(/\b(livre|livres|roman|romans|auteur|isbn)\b/.test(t)) return 'books';
@@ -516,12 +541,24 @@ function queryFor(src, raw, exact){
     t = t.replace(/^(définition|definition|signification)( de| du| d')?\s*/i, '')
          .replace(/^(que |qu'est-ce que )?(signifie|veut dire)\s+(le mot |l'expression )?/i, '')
          .replace(/\s+(signifie|veut dire)$/i, '');
+  }else if(src === 'sun'){
+    t = t.replace(/(qualité|qualite) de l'air|lever du soleil|coucher du soleil/gi, ' ');
+    t = strip(t, "quelle|quel|est|la|le|air|pollution|soleil|heure|heures|aujourd'hui|demain");
+    t = t.replace(/^(à|a|de|du|en|pour|sur|au|aux|dans)\s+/i, '');
+  }else if(src === 'country'){
+    t = t.replace(/combien d'habitants|fiche pays/gi, ' ');
+    t = strip(t, "quelle|quel|est|la|capitale|drapeau|habitants|population|pays|combien|y|a|il|en|au|aux|dans");
+    t = t.replace(/^(de la\s+|du\s+|de l'|d'|des\s+|de\s+|la\s+|le\s+|les\s+|l')/i, '');
   }else t = clean(t);
   return t || raw.trim();
 }
 async function run(src, raw, exact){
   const q = queryFor(src, raw, exact);
   if(src === 'events') return events(raw);
+  if(src === 'calc') return calc(raw);
+  if(src === 'compare') return compare(raw);
+  if(src === 'sun') return sunAir(q);
+  if(src === 'country') return country(q);
   if(src === 'weather') return weather(q);
   if(src === 'osm') return places(q);
   if(src === 'books') return books(q);
@@ -692,8 +729,200 @@ async function events(raw){
   return null;
 }
 
+/* ---------- Calculs, comparaison, pays, soleil et air, ce jour-là, export ---------- */
+const UNITS = {
+  m:['L',1], mètre:['L',1], metre:['L',1], mètres:['L',1], metres:['L',1], km:['L',1000], kilomètre:['L',1000], kilomètres:['L',1000], cm:['L',.01], mm:['L',.001],
+  mi:['L',1609.344], mile:['L',1609.344], miles:['L',1609.344], ft:['L',.3048], pied:['L',.3048], pieds:['L',.3048], in:['L',.0254], pouce:['L',.0254], pouces:['L',.0254], yd:['L',.9144],
+  kg:['M',1], g:['M',.001], lb:['M',.45359237], lbs:['M',.45359237], livre:['M',.45359237], livres:['M',.45359237], oz:['M',.028349523], t:['M',1000], tonne:['M',1000], tonnes:['M',1000],
+  l:['V',1], litre:['V',1], litres:['V',1], ml:['V',.001], cl:['V',.01], gal:['V',3.785411784], gallon:['V',3.785411784], gallons:['V',3.785411784],
+  'km/h':['S',1/3.6], kmh:['S',1/3.6], mph:['S',.44704], 'm/s':['S',1], nœuds:['S',.514444], noeuds:['S',.514444], kn:['S',.514444],
+  c:['T','c'], '°c':['T','c'], celsius:['T','c'], f:['T','f'], '°f':['T','f'], fahrenheit:['T','f'], k:['T','k'], kelvin:['T','k']
+};
+const nf = new Intl.NumberFormat('fr-FR', { maximumFractionDigits: 4 });
+const num = x => parseFloat(String(x).replace(/\s/g, '').replace(',', '.'));
+function calcRes(title, extract){ return { lang:'fr', src:'calc', title, extract, img:'', url:'', others:[] }; }
+function dayDiff(a, b){
+  const A = Date.UTC(a.year, a.month - 1, a.day), B = Date.UTC(b.year, b.month - 1, b.day);
+  return Math.round((B - A) / 86400000);
+}
+function calc(raw){
+  const t = raw.trim().toLowerCase().replace(/’/g, "'").replace(/[?!.]+$/, '');
+  let m = t.match(/^([-+]?\d[\d\s]*(?:[.,]\d+)?)\s*([°a-zœéè\/]+)\s+(?:en|vers|to|→|->|=)\s+([°a-zœéè\/]+)$/);
+  if(m && UNITS[m[2]] && UNITS[m[3]] && UNITS[m[2]][0] === UNITS[m[3]][0]){
+    const v = num(m[1]), a = UNITS[m[2]], b = UNITS[m[3]];
+    let out;
+    if(a[0] === 'T'){
+      const k = a[1] === 'c' ? v + 273.15 : a[1] === 'f' ? (v - 32) * 5 / 9 + 273.15 : v;
+      out = b[1] === 'c' ? k - 273.15 : b[1] === 'f' ? (k - 273.15) * 9 / 5 + 32 : k;
+    }else out = v * a[1] / b[1];
+    return calcRes('Conversion', `${nf.format(v)} ${m[2]} = ${nf.format(out)} ${m[3]}`);
+  }
+  m = t.match(/^([\d\s.,]+)\s*%\s*(?:de|d')\s*([\d\s.,]+)$/);
+  if(m){ const a = num(m[1]), b = num(m[2]); return calcRes('Pourcentage', `${nf.format(a)} % de ${nf.format(b)} = ${nf.format(a * b / 100)}`); }
+  m = t.match(/entre\s+(.+?)\s+et\s+(.+)$/);
+  if(m && /jours?/.test(t)){
+    const a = parseDate(m[1]), b = parseDate(m[2]);
+    if(a && b && a.day && a.month && b.day && b.month){
+      const n = dayDiff(a, b), abs = Math.abs(n);
+      return calcRes('Jours entre deux dates', `${nf.format(abs)} jour${abs > 1 ? 's' : ''} (environ ${nf.format(Math.round(abs / 7 * 10) / 10)} semaines, ou ${nf.format(Math.round(abs / 365.25 * 100) / 100)} an)\n${n < 0 ? 'La deuxième date est antérieure à la première.' : ''}`.trim());
+    }
+  }
+  if(/(quel jour|jour de la semaine)/.test(t)){
+    const d = parseDate(t);
+    if(d && d.day && d.month && d.year){
+      const dt = new Date(Date.UTC(d.year, d.month - 1, d.day));
+      return calcRes('Jour de la semaine', dt.toLocaleDateString('fr-FR', { weekday:'long', day:'numeric', month:'long', year:'numeric', timeZone:'UTC' }));
+    }
+  }
+  if(/^[\d\s+\-*\/().,^x×÷]+$/.test(t) && /\d/.test(t) && /[+\-*\/^x×÷]/.test(t.replace(/^\s*-/, ''))){
+    try{
+      const e = t.replace(/[x×]/g, '*').replace(/÷/g, '/').replace(/\^/g, '**').replace(/(\d),(\d)/g, '$1.$2');
+      const v = Function('"use strict";return (' + e + ')')();
+      if(typeof v === 'number' && isFinite(v)) return calcRes('Calcul', `${raw.trim()} = ${nf.format(v)}`);
+    }catch(err){}
+  }
+  return null;
+}
+function splitCompare(raw){
+  const t = raw.trim().replace(/[?!.]+$/, '');
+  const m = t.match(/^(?:comparer|compare|comparaison(?: entre)?|différence entre|difference entre)\s+(.+?)\s+(?:et|avec|à|vs\.?|contre)\s+(.+)$/i)
+    || t.match(/^(.+?)\s+(?:contre|vs\.?|versus)\s+(.+)$/i);
+  return m ? [clean(m[1]), clean(m[2])] : null;
+}
+function compareAuto(raw){
+  const t = raw.trim();
+  if(/^(comparer|compare|comparaison|différence entre|difference entre)\s/i.test(t) || /\s(vs\.?|versus)\s/i.test(t)) return splitCompare(raw);
+  const m = t.match(/^(.+?)\s+contre\s+(.+)$/i);
+  return m && /^[A-ZÀ-ÝÉ0-9]/.test(m[1]) && /^[A-ZÀ-ÝÉ0-9]/.test(m[2]) && m[1].split(/\s+/).length <= 3 && m[2].split(/\s+/).length <= 3 ? splitCompare(raw) : null;
+}
+async function compare(raw){
+  const p = splitCompare(raw);
+  if(!p) return null;
+  const rs = [];
+  for(const q of p){
+    let r = await wiki('fr', q, 'wikipedia');
+    if(!r) r = await wiki('en', q, 'wikipedia');
+    rs.push(r);
+  }
+  if(!rs[0] && !rs[1]) return null;
+  const a = rs[0] || rs[1];
+  return { lang:'fr', src:'compare', title:rs.map((r,i) => r ? r.title : p[i]).join(' · '),
+    extract:rs.map((r,i) => r ? `${r.title}\n${cutText(r.extract, 520)}` : `${p[i]}\nAucun résultat.`).join('\n\n———\n\n'),
+    img:a.img, url:a.url, others:rs.filter(Boolean).map(r => ({ title:'Ouvrir : ' + r.title, q:r.title, s:'wikipedia' })) };
+}
+const flat = x => String(x).toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim();
+let COUNTRIES = null;
+async function country(q){
+  let c = null;
+  try{
+    const r = await fetch(`https://restcountries.com/v3.1/translation/${encodeURIComponent(q)}?fields=name,translations,capital,population,area,languages,currencies,flags,cca2,region`);
+    if(r.ok){ const j = await r.json(); if(Array.isArray(j) && j.length) c = j[0]; }
+  }catch(e){}
+  if(!c){
+    try{
+      if(!COUNTRIES) COUNTRIES = await getJSON('https://raw.githubusercontent.com/mledoze/countries/master/countries.json');
+      const k = flat(q);
+      const hit = COUNTRIES.find(x => [x.name.common, x.name.official, (x.translations.fra || {}).common, (x.translations.fra || {}).official].some(n => n && flat(n) === k))
+        || COUNTRIES.find(x => [(x.translations.fra || {}).common, x.name.common].some(n => n && flat(n).startsWith(k)) && k.length > 3);
+      if(hit){
+        let pop = null;
+        try{ const w = await getJSON(`https://api.worldbank.org/v2/country/${hit.cca2}/indicator/SP.POP.TOTL?format=json&mrv=1`); pop = w[1] && w[1][0] && w[1][0].value; }catch(e){}
+        c = { name:hit.name, translations:hit.translations, capital:hit.capital, population:pop, area:hit.area, languages:hit.languages, currencies:hit.currencies, cca2:hit.cca2, region:hit.region,
+          flags:{ png:`https://flagcdn.com/w320/${hit.cca2.toLowerCase()}.png` } };
+      }
+    }catch(e){ if(!navigator.onLine) throw e; }
+  }
+  if(!c) return null;
+  const nom = (c.translations && c.translations.fra && c.translations.fra.common) || c.name.common;
+  const lines = [];
+  if(c.capital && c.capital.length) lines.push('Capitale : ' + c.capital.join(', '));
+  if(c.population) lines.push('Population : ' + c.population.toLocaleString('fr-FR') + ' habitants');
+  if(c.area) lines.push('Superficie : ' + c.area.toLocaleString('fr-FR') + ' km²');
+  if(c.languages) lines.push('Langues : ' + Object.values(c.languages).join(', '));
+  if(c.currencies) lines.push('Monnaie : ' + Object.values(c.currencies).map(x => x.name + (x.symbol ? ' (' + x.symbol + ')' : '')).join(', '));
+  if(c.region) lines.push('Région : ' + c.region);
+  return { lang:'fr', src:'country', title:nom, extract:lines.join('\n'), img:(c.flags && (c.flags.png || c.flags.svg)) || '',
+    url:'https://fr.wikipedia.org/wiki/' + encodeURIComponent(nom.replace(/ /g, '_')), others:[] };
+}
+async function sunAir(q){
+  const g = await getJSON(`https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(q)}&count=1&language=fr`);
+  const p = g.results && g.results[0];
+  if(!p) return null;
+  const [f, a] = await Promise.all([
+    getJSON(`https://api.open-meteo.com/v1/forecast?latitude=${p.latitude}&longitude=${p.longitude}&daily=sunrise,sunset,daylight_duration&timezone=auto&forecast_days=1`),
+    getJSON(`https://air-quality-api.open-meteo.com/v1/air-quality?latitude=${p.latitude}&longitude=${p.longitude}&current=european_aqi,pm10,pm2_5&timezone=auto`).catch(() => null)
+  ]);
+  const hm = x => x.slice(11, 16), dur = f.daily.daylight_duration[0];
+  const lines = [[p.name, p.admin1, p.country].filter(Boolean).join(', '),
+    `Lever du soleil : ${hm(f.daily.sunrise[0])}`, `Coucher du soleil : ${hm(f.daily.sunset[0])}`,
+    `Durée du jour : ${Math.floor(dur / 3600)} h ${String(Math.round((dur % 3600) / 60)).padStart(2, '0')}`];
+  const c = a && a.current;
+  if(c && c.european_aqi != null){
+    const v = c.european_aqi;
+    const lab = v <= 20 ? 'bonne' : v <= 40 ? 'correcte' : v <= 60 ? 'moyenne' : v <= 80 ? 'mauvaise' : v <= 100 ? 'très mauvaise' : 'extrêmement mauvaise';
+    lines.push('', `Qualité de l'air : ${lab} (indice européen ${Math.round(v)})`, `Particules fines PM2,5 : ${c.pm2_5} µg/m³ · PM10 : ${c.pm10} µg/m³`);
+  }else lines.push('', "Qualité de l'air : donnée indisponible pour ce lieu.");
+  return { lang:'fr', src:'sun', title:'Soleil et air à ' + p.name, extract:lines.join('\n'), img:'', url:'https://open-meteo.com/', others:[] };
+}
+async function loadToday(){
+  const d = new Date(), pad = n => String(n).padStart(2, '0');
+  const key = 'today-' + d.getFullYear() + pad(d.getMonth() + 1) + pad(d.getDate());
+  let ev = null;
+  try{ ev = JSON.parse(store.get(key) || 'null'); }catch(e){ ev = null; }
+  if(!ev){
+    try{
+      const j = await getJSON(`https://fr.wikipedia.org/api/rest_v1/feed/onthisday/events/${pad(d.getMonth() + 1)}/${pad(d.getDate())}`);
+      ev = (j.events || []).map(e => ({ y:e.year, t:cutText(e.text, 200) })).sort((a,b) => a.y - b.y);
+      try{ Object.keys(localStorage).forEach(k => { if(k.startsWith('today-') && k !== key) localStorage.removeItem(k); }); }catch(e){}
+      store.set(key, JSON.stringify(ev));
+    }catch(e){ return; }
+  }
+  if(!ev.length) return;
+  const n = Math.min(5, ev.length), pick = [];
+  for(let i = 0; i < n; i++) pick.push(ev[Math.floor(i * ev.length / n)]);
+  $('todayT').textContent = 'Ce jour-là (' + d.toLocaleDateString('fr-FR', { day:'numeric', month:'long' }) + ')';
+  $('todayBody').innerHTML = pick.map(e => `<p><b>${esc(e.y)}</b> — ${esc(e.t)}</p>`).join('');
+  $('today').hidden = false;
+}
+function editFav(i){
+  const f = favs[i];
+  if(!f) return;
+  const n = prompt('Note sur ce favori (vide pour effacer) :', f.note || '');
+  if(n === null) return;
+  const folders = [...new Set(favs.map(x => x.folder).filter(Boolean))];
+  const d = prompt('Dossier' + (folders.length ? ' (existants : ' + folders.join(', ') + ')' : '') + ' — vide pour aucun :', f.folder || '');
+  if(d === null) return;
+  f.note = n.trim().slice(0, 200); f.folder = d.trim().slice(0, 30);
+  saveFavs(); renderList();
+}
+function convText(c){
+  const L = [c.title, new Date(c.date).toLocaleDateString('fr-FR'), ''];
+  c.items.forEach(it => {
+    L.push('Q : ' + it.q);
+    if(it.res){ L.push(it.res.title, it.res.extract); if(it.summary) L.push('Résumé : ' + it.summary); if(it.res.url) L.push(it.res.url); }
+    else L.push('(aucun résultat)');
+    L.push('');
+  });
+  return L.join('\n');
+}
+$('xtxt').onclick = async () => {
+  if(!cur || !cur.items.length){ alert('Rien à exporter pour le moment.'); return; }
+  const t = convText(cur);
+  try{
+    if(navigator.share){ await navigator.share({ title:cur.title, text:t }); return; }
+    await navigator.clipboard.writeText(t);
+    alert('Conversation copiée : tu peux la coller où tu veux.');
+  }catch(e){}
+};
+$('xpdf').onclick = () => {
+  if(!cur || !cur.items.length){ alert('Rien à exporter pour le moment.'); return; }
+  alert("Dans la fenêtre qui s'ouvre, choisis « Enregistrer au format PDF ».");
+  window.print();
+};
+
 /* ---------- Démarrage : nouvelle conversation à chaque ouverture ---------- */
 newConv();
+loadToday();
 </script>
 </body>
 </html>
