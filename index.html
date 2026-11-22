@@ -110,7 +110,7 @@ select{font:inherit;flex:1;min-width:0;padding:10px;border:1.5px solid var(--lin
   <button id="go" type="submit">Chercher</button>
 </form>
 <div class="tools">
-  <select id="src" aria-label="Source de la recherche"><option value="auto">Automatique</option><option value="wikipedia">Wikipédia</option><option value="wiktionary">Wiktionnaire (définitions)</option><option value="osm">Lieux (carte)</option><option value="weather">Météo</option><option value="books">Livres</option><option value="wikiquote">Citations</option></select>
+  <select id="src" aria-label="Source de la recherche"><option value="auto">Automatique</option><option value="events">Année ou date (événements)</option><option value="wikipedia">Wikipédia</option><option value="wiktionary">Wiktionnaire (définitions)</option><option value="osm">Lieux (carte)</option><option value="weather">Météo</option><option value="books">Livres</option><option value="wikiquote">Citations</option></select>
   <button id="rand" class="alt small" type="button">Article au hasard</button>
 </div>
 
@@ -160,11 +160,12 @@ function langLabel(r){
   if(r.src === 'osm') return 'OpenStreetMap';
   if(r.src === 'weather') return 'Open-Meteo';
   if(r.src === 'books') return 'Open Library';
+  if(r.src === 'events') return r.lang === 'fr' ? 'Wikipédia · événements' : 'Wikipédia · événements (en anglais, rien en français)';
   const n = { wikipedia:'Wikipédia', wiktionary:'Wiktionnaire', wikiquote:'Wikiquote' }[r.src || 'wikipedia'] || 'Wikipédia';
   return r.lang === 'fr' ? `${n} en français` : `${n} en anglais (rien en français)`;
 }
 function linkLabel(r){
-  return { osm:'Voir la carte', books:'Fiche du livre', weather:'Détails météo', wikiquote:'Lire la page', wiktionary:'Lire la page' }[r.src] || "Lire l'article";
+  return { osm:'Voir la carte', books:'Fiche du livre', weather:'Détails météo', wikiquote:'Lire la page', wiktionary:'Lire la page', events:'Lire la page' }[r.src] || "Lire l'article";
 }
 function renderList(){
   const ul = $('list');
@@ -267,11 +268,13 @@ function toRes(pages, lang, src){
 }
 async function wiki(lang, q, src = 'wikipedia'){
   const dict = src !== 'wikipedia';
-  const u = wikiURL(lang, src, `generator=search&gsrsearch=${encodeURIComponent(q)}&gsrlimit=${dict ? 1 : 5}&prop=extracts|pageimages|info&explaintext=1&${dict ? 'exchars=' + (src === 'wikiquote' ? 1800 : 1200) : 'exintro=1&exsentences=5'}&piprop=thumbnail&pithumbsize=700&inprop=url`);
+  const u = wikiURL(lang, src, `generator=search&gsrsearch=${encodeURIComponent(q)}&gsrlimit=${dict ? 1 : 5}&prop=extracts|pageimages|info&explaintext=1&${dict ? 'exlimit=1' : 'exintro=1&exsentences=5'}&piprop=thumbnail&pithumbsize=700&inprop=url`);
   const r = await fetch(u);
   if(!r.ok) throw new Error('wiki');
   const j = await r.json();
-  return toRes(j.query ? Object.values(j.query.pages) : [], lang, src);
+  const res = toRes(j.query ? Object.values(j.query.pages) : [], lang, src);
+  if(res && dict) res.extract = cutText(res.extract, src === 'wikiquote' ? 1800 : 1200);
+  return res;
 }
 async function randomWiki(){
   for(let k = 0; k < 3; k++){
@@ -398,9 +401,9 @@ async function more(i, btn){
     if(!it.more){
       btn.disabled = true; btn.textContent = 'Chargement…';
       try{
-        const u = `https://${r.lang}.wikipedia.org/w/api.php?action=query&prop=extracts&explaintext=1&exchars=6000&redirects=1&titles=${encodeURIComponent(r.title)}&format=json&origin=*`;
+        const u = `https://${r.lang}.wikipedia.org/w/api.php?action=query&prop=extracts&explaintext=1&redirects=1&titles=${encodeURIComponent(r.title)}&format=json&origin=*`;
         const j = await (await fetch(u)).json();
-        it.more = (Object.values(j.query.pages)[0].extract || '').trim();
+        it.more = cutText((Object.values(j.query.pages)[0].extract || '').trim(), 6000);
       }catch(e){
         btn.disabled = false; btn.textContent = 'Lire la suite';
         box.textContent = 'Impossible de charger la suite (hors ligne ?).';
@@ -484,7 +487,11 @@ async function getJSON(u){
 function pickSource(raw){
   const v = $('src').value;
   if(v !== 'auto') return v;
-  const t = raw.toLowerCase();
+  const t = raw.toLowerCase().trim().replace(/’/g, "'");
+  const dd = parseDate(raw);
+  if(dd && (/^(?:en |l'année |année )?\d{3,4}$/.test(t)
+    || (dd.month && /^(?:le )?(?:\d{1,2}(?:er)?\s+[a-zéûè]+\s+|\d{1,2}[\/.-]\d{1,2}[\/.-]|[a-zéûè]+\s+)\d{3,4}$/.test(t))
+    || /(événement|evenement|s'est[- ]il passé|s'est passé)/.test(t))) return 'events';
   if(/\b(météo|meteo|température|temperature|quel temps)\b/.test(t)) return 'weather';
   if(/\b(où se trouve|ou se trouve|où est|ou est|carte de|carte du|adresse de|adresse du|plan de|localiser|itinéraire)\b/.test(t)) return 'osm';
   if(/\b(livre|livres|roman|romans|auteur|isbn)\b/.test(t)) return 'books';
@@ -514,6 +521,7 @@ function queryFor(src, raw, exact){
 }
 async function run(src, raw, exact){
   const q = queryFor(src, raw, exact);
+  if(src === 'events') return events(raw);
   if(src === 'weather') return weather(q);
   if(src === 'osm') return places(q);
   if(src === 'books') return books(q);
@@ -601,6 +609,87 @@ async function photos(i, btn){
   persist();
   box.innerHTML = it.showGal ? galHTML(it.gal) : '';
   btn.textContent = it.showGal ? 'Masquer les photos' : 'Photos';
+}
+
+/* ---------- Événements d'une année ou d'une date ---------- */
+const MOIS = ['janvier','février','mars','avril','mai','juin','juillet','août','septembre','octobre','novembre','décembre'];
+const MONTHS_EN = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+function cutText(t, n){
+  if(t.length <= n) return t;
+  const c = t.slice(0, n);
+  const k = Math.max(c.lastIndexOf('\n'), c.lastIndexOf('. '));
+  return (k > n * 0.5 ? c.slice(0, k + 1) : c) + '…';
+}
+function parseDate(raw){
+  const t = raw.toLowerCase().replace(/’/g, "'");
+  let m = t.match(/\b(\d{1,2})[\/.-](\d{1,2})[\/.-](\d{3,4})\b/);
+  if(m) return { day:+m[1], month:+m[2], year:+m[3] };
+  const names = MOIS.map((x,i) => [x, i+1]).concat([['fevrier',2],['aout',8],['decembre',12]]);
+  for(const [name, num] of names){
+    m = t.match(new RegExp('(?:\\b(\\d{1,2})(?:er)?\\s+)?' + name + '\\s+(\\d{3,4})\\b'));
+    if(m) return { day:m[1] ? +m[1] : null, month:num, year:+m[2] };
+  }
+  m = t.match(/\b(\d{3,4})\b/);
+  return m ? { year:+m[1] } : null;
+}
+function parseYear(text, lang){
+  const arr = lang === 'fr' ? MOIS : MONTHS_EN, mo = arr.join('|');
+  const re = lang === 'fr'
+    ? new RegExp('^(?:(\\d{1,2})(?:er)?\\s+)?(' + mo + ')\\b\\s*[:–—-]\\s*(.{25,})$', 'i')
+    : new RegExp('^(' + mo + ')\\s+(\\d{1,2})\\s*[:–—-]\\s*(.{25,})$', 'i');
+  const idx = x => arr.findIndex(a => a.toLowerCase() === x.toLowerCase());
+  const out = [];
+  for(const raw of text.split('\n')){
+    const m = raw.trim().match(re);
+    if(!m) continue;
+    out.push(lang === 'fr' ? { mo:idx(m[2]), day:m[1] ? +m[1] : null, text:m[3] } : { mo:idx(m[1]), day:+m[2], text:m[3] });
+  }
+  return out;
+}
+function chooseEvents(items, d){
+  if(d && d.month){
+    const mo = items.filter(x => x.mo === d.month - 1);
+    const dd = d.day ? mo.filter(x => x.day === d.day) : [];
+    return (dd.length ? dd : mo).slice(0, 8);
+  }
+  const by = {};
+  items.forEach(x => (by[x.mo] = by[x.mo] || []).push(x));
+  const out = [];
+  Object.keys(by).sort((a,b) => a - b).forEach(k => out.push(...by[k].slice(0, 2)));
+  return out.slice(0, 14);
+}
+function genericLines(text){
+  const lines = text.split('\n').map(l => l.trim());
+  const i = lines.findIndex(l => /^(événements|en bref|events)$/i.test(l));
+  return lines.slice(i + 1).filter(l => l.length > 50 && l.length < 320).slice(0, 10);
+}
+async function events(raw){
+  const d = parseDate(raw);
+  if(!d || !d.year) return null;
+  const y = d.year, pad = n => String(n).padStart(2, '0');
+  const jour = d.day ? (d.day === 1 ? '1er' : d.day) : '';
+  if(d.day && d.month){
+    try{
+      const j = await getJSON(`https://fr.wikipedia.org/api/rest_v1/feed/onthisday/events/${pad(d.month)}/${pad(d.day)}`);
+      const ev = (j.events || []).filter(e => e.year === y);
+      if(ev.length) return { lang:'fr', src:'events', title:`${jour} ${MOIS[d.month-1]} ${y}`, extract:ev.slice(0, 8).map(e => e.text).join('\n\n'), img:'', url:`https://fr.wikipedia.org/wiki/${jour}_${MOIS[d.month-1]}`, others:[] };
+    }catch(e){ if(!navigator.onLine) throw e; }
+  }
+  for(const lang of ['fr', 'en']){
+    try{
+      const j = await getJSON(wikiURL(lang, 'wikipedia', `prop=extracts|info&explaintext=1&exsectionformat=plain&redirects=1&inprop=url&titles=${y}`));
+      const p = Object.values((j.query && j.query.pages) || {})[0];
+      if(!p || !p.extract) continue;
+      const names = lang === 'fr' ? MOIS : MONTHS_EN;
+      const title = d.month ? `${names[d.month-1]} ${y}` : (lang === 'fr' ? `Événements de ${y}` : `Événements de ${y}`);
+      const pick = chooseEvents(parseYear(p.extract, lang), d);
+      let lines = pick.map(x => lang === 'fr' ? `${x.day ? (x.day === 1 ? '1er' : x.day) + ' ' : ''}${names[x.mo]} : ${x.text}` : `${names[x.mo]}${x.day ? ' ' + x.day : ''} : ${x.text}`);
+      if(lines.length < 2 && lang === 'fr') lines = genericLines(p.extract);
+      if(lines.length < 2) continue;
+      return { lang, src:'events', title, extract:lines.join('\n\n'), img:'', url:p.fullurl, others:[] };
+    }catch(e){ if(!navigator.onLine) throw e; }
+  }
+  return null;
 }
 
 /* ---------- Démarrage : nouvelle conversation à chaque ouverture ---------- */
