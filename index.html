@@ -87,6 +87,10 @@ select{font:inherit;flex:1;min-width:0;padding:10px;border:1.5px solid var(--lin
   .card{break-inside:avoid;border:1px solid #999}
   .q{background:#eee;color:#000}
 }
+.res{list-style:none;margin:0;padding:0}
+.res li{padding:10px 0;border-bottom:1px solid var(--line)}.res li:last-child{border:0}
+.res a{font-weight:600;color:var(--accent);text-decoration:none}
+.res small{display:block;color:var(--muted)}.res p{margin:4px 0 0}
 @media (prefers-reduced-motion:no-preference){
   #panel{transition:transform .2s ease,visibility .2s}
   .card{animation:in .25s ease-out}@keyframes in{from{opacity:0}to{opacity:1}}
@@ -119,7 +123,7 @@ select{font:inherit;flex:1;min-width:0;padding:10px;border:1.5px solid var(--lin
   <button id="go" type="submit">Chercher</button>
 </form>
 <div class="tools">
-  <select id="src" aria-label="Source de la recherche"><option value="auto">Automatique</option><option value="events">Année ou date (événements)</option><option value="wikipedia">Wikipédia</option><option value="wiktionary">Wiktionnaire (définitions)</option><option value="osm">Lieux (carte)</option><option value="weather">Météo</option><option value="sun">Soleil et air</option><option value="country">Pays</option><option value="calc">Calcul / conversion</option><option value="compare">Comparer deux sujets</option><option value="books">Livres</option><option value="wikiquote">Citations</option></select>
+  <select id="src" aria-label="Source de la recherche"><option value="auto">Automatique</option><option value="list">Résultats (liste)</option><option value="events">Année ou date (événements)</option><option value="wikipedia">Wikipédia</option><option value="wiktionary">Wiktionnaire (définitions)</option><option value="osm">Lieux (carte)</option><option value="weather">Météo</option><option value="sun">Soleil et air</option><option value="country">Pays</option><option value="calc">Calcul / conversion</option><option value="compare">Comparer deux sujets</option><option value="books">Livres</option><option value="wikiquote">Citations</option></select>
   <button id="rand" class="alt small" type="button">Article au hasard</button>
 </div>
 
@@ -171,6 +175,7 @@ function delConv(id){
 let tab = 'c';
 function langLabel(r){
   if(r.src === 'osm') return 'OpenStreetMap';
+  if(r.src === 'list') return 'Résultats multi-sites';
   if(r.src === 'country') return 'Fiche pays';
   if(r.src === 'sun') return 'Open-Meteo (soleil et air)';
   if(r.src === 'calc') return 'Calcul (fait sur ton téléphone)';
@@ -230,6 +235,7 @@ function cardHTML(it, idx){
   if(it.error) return `<div class="msg err">${esc(it.error)}</div>`;
   if(it.notfound) return '<div class="msg">Aucun résultat. Essaie avec d\'autres mots.</div>';
   const r = it.res;
+  if(r.src === 'list') return listHTML(r);
   return `<article class="card">
     ${r.img ? `<img src="${esc(r.img)}" alt="${esc(r.title)}">` : ''}
     <div class="body">
@@ -350,8 +356,10 @@ function summarize(i, btn){
 
 /* ---------- Suggestions, lecture, partage, voix, hors ligne ---------- */
 function chipsHTML(r){
-  if(!r.others || !r.others.length) return '';
-  return `<div class="chips"><p class="lang">D'autres articles proches :</p>${r.others.map(o => `<button class="chip" data-s="${esc(o.s || r.src || 'wikipedia')}" data-t="${esc(o.q || o.title)}" type="button">${esc(o.title)}</button>`).join('')}</div>`;
+  const more = (r.src || 'wikipedia') === 'wikipedia' ? `<button class="chip" data-s="list" data-t="${esc(r.title)}" type="button">Plus de résultats</button>` : '';
+  const others = (r.others || []).map(o => `<button class="chip" data-s="${esc(o.s || r.src || 'wikipedia')}" data-t="${esc(o.q || o.title)}" type="button">${esc(o.title)}</button>`).join('');
+  if(!more && !others) return '';
+  return `<div class="chips">${others ? '<p class="lang">D\'autres articles proches :</p>' : ''}${others}${more}</div>`;
 }
 function listen(i, btn){
   const sy = window.speechSynthesis;
@@ -513,6 +521,7 @@ function pickSource(raw){
   if(dd && (/^(?:en |l'année |année )?\d{3,4}$/.test(t)
     || (dd.month && /^(?:le )?(?:\d{1,2}(?:er)?\s+[a-zéûè]+\s+|\d{1,2}[\/.-]\d{1,2}[\/.-]|[a-zéûè]+\s+)\d{3,4}$/.test(t))
     || /(événement|evenement|s'est[- ]il passé|s'est passé)/.test(t))) return 'events';
+  if(/^(résultats?|liste|recherche|cherche|trouve)\s+/i.test(raw.trim())) return 'list';
   if(calc(raw)) return 'calc';
   if(compareAuto(raw)) return 'compare';
   if(/\b(qualité de l'air|qualite de l'air|pollution|lever du soleil|coucher du soleil)\b/.test(t)) return 'sun';
@@ -541,6 +550,8 @@ function queryFor(src, raw, exact){
     t = t.replace(/^(définition|definition|signification)( de| du| d')?\s*/i, '')
          .replace(/^(que |qu'est-ce que )?(signifie|veut dire)\s+(le mot |l'expression )?/i, '')
          .replace(/\s+(signifie|veut dire)$/i, '');
+  }else if(src === 'list'){
+    t = t.replace(/^(résultats?|liste|recherche|cherche|trouve)(\s+(de|des|sur|pour|moi|-moi))*\s+/i, '');
   }else if(src === 'sun'){
     t = t.replace(/(qualité|qualite) de l'air|lever du soleil|coucher du soleil/gi, ' ');
     t = strip(t, "quelle|quel|est|la|le|air|pollution|soleil|heure|heures|aujourd'hui|demain");
@@ -554,6 +565,7 @@ function queryFor(src, raw, exact){
 }
 async function run(src, raw, exact){
   const q = queryFor(src, raw, exact);
+  if(src === 'list') return searchAll(q);
   if(src === 'events') return events(raw);
   if(src === 'calc') return calc(raw);
   if(src === 'compare') return compare(raw);
@@ -919,6 +931,37 @@ $('xpdf').onclick = () => {
   alert("Dans la fenêtre qui s'ouvre, choisis « Enregistrer au format PDF ».");
   window.print();
 };
+
+/* ---------- Résultats en liste, sur plusieurs sites ---------- */
+const SITES = [['fr','wikipedia','Wikipédia',5], ['en','wikipedia','Wikipédia (anglais)',3], ['fr','wikivoyage','Wikivoyage',3], ['fr','wikisource','Wikisource',3], ['fr','wikibooks','Wikilivres',3]];
+const plain = h => String(h).replace(/<[^>]+>/g, '').replace(/&quot;/g, '"').replace(/&#039;/g, "'").replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&');
+async function commonsThumbs(q){
+  const j = await getJSON(`https://commons.wikimedia.org/w/api.php?action=query&generator=search&gsrnamespace=6&gsrsearch=${encodeURIComponent(q)}&gsrlimit=12&prop=imageinfo&iiprop=url&iiurlwidth=360&format=json&origin=*`);
+  return Object.values((j.query && j.query.pages) || {})
+    .sort((a,b) => (a.index||0) - (b.index||0))
+    .filter(p => p.imageinfo && /\.(jpe?g|png|webp)$/i.test(p.title))
+    .slice(0, 4)
+    .map(p => ({ thumb:p.imageinfo[0].thumburl, page:p.imageinfo[0].descriptionurl, title:p.title.replace(/^(Fichier|File):/, '') }));
+}
+async function searchAll(q){
+  const jobs = SITES.map(([lang, site, label, n]) =>
+    getJSON(wikiURL(lang, site, `list=search&srsearch=${encodeURIComponent(q)}&srlimit=${n}&srprop=snippet`))
+      .then(j => ((j.query && j.query.search) || []).map(x => ({ title:x.title, snippet:plain(x.snippet), site:label, url:`https://${lang}.${site}.org/wiki/${encodeURIComponent(x.title.replace(/ /g, '_'))}` })))
+      .catch(() => null));
+  const [lists, gal] = await Promise.all([Promise.all(jobs), commonsThumbs(q).catch(() => [])]);
+  if(lists.every(l => l === null) && !navigator.onLine) throw new Error('offline');
+  const items = [];
+  for(let i = 0; i < 6 && items.length < 12; i++) lists.forEach(l => { if(l && l[i] && items.length < 12) items.push(l[i]); });
+  if(!items.length && !gal.length) return null;
+  return { lang:'fr', src:'list', title:`Résultats pour « ${q} »`,
+    extract:items.map(x => `${x.title} (${x.site})\n${x.snippet}\n${x.url}`).join('\n\n'), img:'', url:'', others:[], items, gal };
+}
+function listHTML(r){
+  return `<article class="card"><div class="body"><h2>${esc(r.title)}</h2>
+    <ul class="res">${r.items.map(x => `<li><a href="${esc(x.url)}" target="_blank" rel="noopener">${esc(x.title)}</a><small>${esc(x.site)}</small><p>${esc(x.snippet)}</p></li>`).join('')}</ul>
+    ${r.gal && r.gal.length ? `<div class="gal">${galHTML(r.gal)}</div>` : ''}
+  </div></article>`;
+}
 
 /* ---------- Démarrage : nouvelle conversation à chaque ouverture ---------- */
 newConv();
