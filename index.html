@@ -81,9 +81,11 @@ select{font:inherit;flex:1;min-width:0;padding:10px;border:1.5px solid var(--lin
 .gal img{display:block;width:100%;height:110px;object-fit:cover;border-radius:10px;background:var(--accent-soft)}
 .today{margin:0 0 14px;background:var(--card);border:1px solid var(--line);border-radius:14px;padding:12px 14px}
 .today p{margin:8px 0}.today b{color:var(--accent)}
+.nw small{display:block;color:var(--muted)}
+.nw a{color:var(--accent);font-weight:600;text-decoration:none}
 @media print{
   body{background:#fff;color:#000;max-width:none;padding:0}
-  header,form,.tools,.sub,#today,#panel,#scrim,.actions,.chips,.gal{display:none!important}
+  header,form,.tools,.sub,#today,#news,#panel,#scrim,.actions,.chips,.gal{display:none!important}
   .card{break-inside:avoid;border:1px solid #999}
   .q{background:#eee;color:#000}
 }
@@ -115,6 +117,10 @@ select{font:inherit;flex:1;min-width:0;padding:10px;border:1.5px solid var(--lin
   <div class="hb"><button id="theme" class="alt small" type="button">Sombre</button><button id="openp" class="alt small" type="button">Conversations</button></div>
 </header>
 <p class="sub">Tape une question, l'appli cherche sur Wikipédia.</p>
+<details id="news" class="today"><summary>Infos</summary>
+  <p class="lang">Titres des médias publics et libres, avec un lien vers l'article.</p>
+  <div class="row"><select id="nsrc" aria-label="Média"></select><button id="nrel" class="alt small" type="button">Actualiser</button></div>
+  <div id="nbody" class="nw"></div></details>
 <details id="today" class="today" hidden><summary id="todayT">Ce jour-là</summary><div id="todayBody"></div></details>
 
 <form id="f">
@@ -962,6 +968,57 @@ function listHTML(r){
     ${r.gal && r.gal.length ? `<div class="gal">${galHTML(r.gal)}</div>` : ''}
   </div></article>`;
 }
+
+/* ---------- Infos : titres des médias (flux RSS) ---------- */
+const NEWS = [
+  ['Franceinfo · À la une','https://www.franceinfo.fr/titres.rss'],
+  ['Franceinfo · Monde','https://www.franceinfo.fr/monde.rss'],
+  ['Franceinfo · France','https://www.franceinfo.fr/france.rss'],
+  ['Franceinfo · Politique','https://www.franceinfo.fr/politique.rss'],
+  ['Franceinfo · Culture','https://www.francetvinfo.fr/culture.rss'],
+  ['Franceinfo · Tech','https://www.franceinfo.fr/internet.rss'],
+  ['Le Monde · À la une','https://www.lemonde.fr/rss/une.xml'],
+  ['Le Monde Informatique','https://www.lemondeinformatique.fr/rss.xml']
+];
+$('nsrc').innerHTML = NEWS.map((n,i) => `<option value="${i}">${esc(n[0])}</option>`).join('');
+function newsDate(s){
+  if(!s) return '';
+  const d = new Date(/^\d{4}-\d\d-\d\d \d\d:\d\d/.test(s) ? s.replace(' ', 'T') + 'Z' : s);
+  return isNaN(d) ? '' : d.toLocaleString('fr-FR', { day:'numeric', month:'short', hour:'2-digit', minute:'2-digit' });
+}
+async function fetchFeed(url){
+  try{
+    const j = await getJSON('https://api.rss2json.com/v1/api.json?rss_url=' + encodeURIComponent(url));
+    if(j.status === 'ok' && j.items && j.items.length) return j.items.slice(0, 15).map(x => ({ t:plain(x.title), l:x.link, d:newsDate(x.pubDate) }));
+  }catch(e){}
+  const r = await fetch('https://api.allorigins.win/raw?url=' + encodeURIComponent(url));
+  if(!r.ok) throw new Error('feed');
+  const x = new DOMParser().parseFromString(await r.text(), 'text/xml');
+  return Array.from(x.querySelectorAll('item')).slice(0, 15).map(i => ({
+    t:(i.querySelector('title') || {}).textContent || '', l:(i.querySelector('link') || {}).textContent || '', d:newsDate((i.querySelector('pubDate') || {}).textContent) })).filter(i => i.t && i.l);
+}
+async function loadNews(force){
+  const i = +$('nsrc').value, n = NEWS[i], key = 'news-' + i, box = $('nbody');
+  let c = null;
+  try{ c = JSON.parse(store.get(key) || 'null'); }catch(e){ c = null; }
+  const show = (items, note) => {
+    box.innerHTML = (note ? `<p class="lang">${esc(note)}</p>` : '') + items.map(x => `<p><a href="${esc(x.l)}" target="_blank" rel="noopener">${esc(x.t)}</a><small>${esc(n[0])}${x.d ? ' · ' + esc(x.d) : ''}</small></p>`).join('');
+  };
+  if(c && !force && Date.now() - c.at < 15 * 60 * 1000){ show(c.items); return; }
+  box.innerHTML = '<p>Chargement…</p>';
+  try{
+    const items = await fetchFeed(n[1]);
+    if(!items.length) throw new Error('vide');
+    store.set(key, JSON.stringify({ at:Date.now(), items }));
+    show(items);
+  }catch(e){
+    if(c) show(c.items, 'Hors ligne ou flux indisponible : derniers titres enregistrés.');
+    else box.innerHTML = `<p class="lang">Impossible de lire ce flux pour le moment. Essaie un autre média, ou réessaie plus tard.</p>`;
+  }
+}
+$('news').addEventListener('toggle', () => { if($('news').open) loadNews(false); });
+$('nsrc').addEventListener('change', () => loadNews(false));
+$('nrel').onclick = () => loadNews(true);
 
 /* ---------- Démarrage : nouvelle conversation à chaque ouverture ---------- */
 newConv();
